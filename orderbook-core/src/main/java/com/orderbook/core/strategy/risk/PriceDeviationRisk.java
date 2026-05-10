@@ -1,4 +1,4 @@
-package com.orderbook.strategy.risk;
+package com.orderbook.core.strategy.risk;
 
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
@@ -32,8 +32,9 @@ public class PriceDeviationRisk implements RiskCheck {
                 .divide(referencePrice, 6, RoundingMode.HALF_UP);
 
         if (deviation.compareTo(maxDeviationPercent) > 0) {
-            log.warn("[{}] Price deviation {}/{} exceeds max {}%: price={} refPrice={}",
-                    symbol, deviation.multiply(BigDecimal.valueOf(100)), maxDeviationPercent.multiply(BigDecimal.valueOf(100)),
+            log.warn("[{}] Price deviation {}% exceeds max {}%: price={} refPrice={}",
+                    symbol, deviation.multiply(BigDecimal.valueOf(100)),
+                    maxDeviationPercent.multiply(BigDecimal.valueOf(100)),
                     price, referencePrice);
             return false;
         }

@@ -30,7 +30,6 @@
 | `orderbook-core` | 核心：交易所连接、订单簿管理、策略执行、Alpha 信号、ML 推理、风控 |
 | `orderbook-command` | 命令接口层：StrategyCmd、ExchangeFunc 等 |
 | `orderbook-connector` | 交易所连接器封装 (xchange 集成) |
-| `orderbook-strategy` | 策略接口 + 风控框架（无业务依赖） |
 
 ---
 

@@ -1,4 +1,4 @@
-package com.orderbook.strategy.risk;
+package com.orderbook.core.strategy.risk;
 
 import java.math.BigDecimal;
 

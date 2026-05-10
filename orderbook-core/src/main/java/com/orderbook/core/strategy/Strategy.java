@@ -1,4 +1,4 @@
-package com.orderbook.strategy;
+package com.orderbook.core.strategy;
 
 import java.util.Map;
 

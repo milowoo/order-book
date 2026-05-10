@@ -19,7 +19,6 @@
         <module>orderbook-connector</module>
         <module>orderbook-command</module>
         <module>orderbook-core</module>
-        <module>orderbook-strategy</module>
     </modules>
 
     <properties>
@@ -35,11 +34,6 @@
                 <groupId>com.ctrip.framework.apollo</groupId>
                 <artifactId>apollo-client</artifactId>
                 <version>2.5.0</version>
-            </dependency>
-            <dependency>
-                <groupId>com.orderbook</groupId>
-                <artifactId>orderbook-strategy</artifactId>
-                <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.orderbook</groupId>

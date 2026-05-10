@@ -7,7 +7,7 @@ import com.orderbook.core.config.StrategyProps;
 import com.orderbook.core.domain.SymbolBo;
 import com.orderbook.core.utils.JsonConverter;
 import com.orderbook.core.utils.TrackingUtils;
-import com.orderbook.strategy.Strategy;
+import com.orderbook.core.strategy.Strategy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.time.StopWatch;

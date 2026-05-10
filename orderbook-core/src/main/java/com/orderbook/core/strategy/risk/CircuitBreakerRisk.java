@@ -1,4 +1,4 @@
-package com.orderbook.strategy.risk;
+package com.orderbook.core.strategy.risk;
 
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
