@@ -27,6 +27,7 @@ import java.util.stream.Collectors;
 /**
  * Persistence service for writing trade logs, inventory snapshots,
  * and order book snapshots to TiDB.
+ * 用于将交易日志、库存快照和订单簿快照写入 TiDB 的持久化服务。
  */
 @Slf4j
 @Service

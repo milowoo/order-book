@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * REST API for ML model training and management.
+ * 用于机器学习模型训练与管理的 REST API。
  */
 @RestController
 @RequestMapping("/api/ml")

@@ -4,7 +4,6 @@ import cn.hutool.core.collection.CollUtil;
 import com.orderbook.cmd.ExchangeCode;
 import com.orderbook.connector.interfaces.StreamConnectorFactory;
 import com.orderbook.connector.stream.global.GlobalStreamingExchange;
-import com.orderbook.connector.stream.global.GlobalStreamingService;
 import com.orderbook.core.config.ExchangeConnectConfig;
 import com.orderbook.core.domain.ExchangeInfo;
 import com.orderbook.core.domain.SymbolBo;

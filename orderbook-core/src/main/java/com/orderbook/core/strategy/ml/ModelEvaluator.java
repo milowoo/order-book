@@ -3,12 +3,12 @@ package com.orderbook.core.strategy.ml;
 import java.util.List;
 
 /**
- * Evaluates trained ML model performance on held-out test data.
+ * 在预留的测试数据上评估训练好的机器学习模型的性能。
  */
 public class ModelEvaluator {
 
     /**
-     * Evaluate a RandomForestModel on test data.
+     * 在测试数据上评估随机森林模型。
      */
     public EvaluationResult evaluate(RandomForestModel model, List<CartTrainer.TrainingExample> testData) {
         if (testData == null || testData.isEmpty()) {

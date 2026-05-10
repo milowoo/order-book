@@ -1,15 +1,15 @@
 package com.orderbook.core.sor;
 
 /**
- * SOR exchange selection strategy.
+ * 智能订单路由（SOR）的交易所选择策略。
  */
 public enum RoutingStrategy {
-    /** Pick exchange with lowest taker fee. */
+    /** 选择吃单费率最低的交易所。 */
     LOWEST_FEE,
-    /** Pick exchange with lowest historical latency. */
+    /** 选择历史延迟最低的交易所（即速度最快）。 */
     FASTEST,
-    /** Pick exchange with deepest liquidity. */
+    /** 选择流动性最深（盘口厚度最好）的交易所。 */
     BEST_LIQUIDITY,
-    /** Weighted combination of fee, latency, and liquidity scores. */
+    /** 基于费率、延迟和流动性分数的加权组合策略。 */
     WEIGHTED
 }

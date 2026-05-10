@@ -15,8 +15,8 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Fee configuration service loaded from fee_config table.
- * Provides taker/maker rates per exchange and break-even spread calculation.
+ * 从 fee_config 表加载的费用配置服务。
+ * 提供每个交易所的吃单/挂单费率，并计算保本价差。
  */
 @Slf4j
 @Service

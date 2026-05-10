@@ -9,8 +9,8 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Manages per-operation-type rate limiters.
- * Limits are configurable via ApolloConfig.
+ * 管理按操作类型划分的限流器。
+ * 限制阈值可通过 ApolloConfig 进行配置。
  */
 @Slf4j
 @Service

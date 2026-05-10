@@ -3,8 +3,8 @@ package com.orderbook.core.strategy;
 import java.util.Map;
 
 /**
- * Base interface for all trading strategies.
- * Implementations are Spring beans injected by the StrategyExecutor.
+ * 所有交易策略的基础接口。
+ * 具体实现类是由 StrategyExecutor 注入的 Spring Bean。
  */
 public interface Strategy {
 

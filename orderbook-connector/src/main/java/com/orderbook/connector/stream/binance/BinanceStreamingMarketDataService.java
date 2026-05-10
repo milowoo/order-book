@@ -1,15 +1,14 @@
 package com.orderbook.connector.stream.binance;
 
 import com.orderbook.connector.stream.binance.dto.BinanceRawTrade;
-import com.orderbook.connector.stream.binance.dto.DepthBinanceWebSocketTransaction;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import com.orderbook.connector.stream.binance.dto.BinanceWebSocketTransaction;
 import info.bitrich.xchangestream.core.StreamingMarketDataService;
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.core.Scheduler;
 import io.reactivex.rxjava3.schedulers.Schedulers;
 import org.knowm.xchange.binance.BinanceAdapters;
-import org.knowm.xchange.binance.BinanceExchange;
 import org.knowm.xchange.binance.dto.marketdata.*;
 import org.knowm.xchange.binance.service.BinanceMarketDataService;
 import org.knowm.xchange.currency.CurrencyPair;
@@ -29,12 +28,9 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.stream.Stream;
 
 import static info.bitrich.xchangestream.service.netty.StreamingObjectMapperHelper.getObjectMapper;
-import static java.util.Collections.emptyMap;
 
 public class BinanceStreamingMarketDataService implements StreamingMarketDataService {
 

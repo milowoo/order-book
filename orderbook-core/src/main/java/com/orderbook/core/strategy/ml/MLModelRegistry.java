@@ -11,8 +11,8 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Registry of active ML models per symbol.
- * Enables dynamic model switching at runtime without restart.
+ * 每个交易标的（Symbol）对应的活跃机器学习模型注册表。
+ * 支持在运行时动态切换模型，无需重启服务。
  */
 @Slf4j
 @Service
@@ -31,8 +31,8 @@ public class MLModelRegistry {
     }
 
     /**
-     * Get the active model for a symbol.
-     * Returns from cache or loads from DB on first access.
+     * 获取指定交易标的（Symbol）的活跃模型。
+     * 首次访问时从数据库加载，之后则直接从缓存返回。
      */
     public RandomForestModel getModel(String symbol) {
         return activeModels.computeIfAbsent(symbol, s -> {
@@ -51,7 +51,7 @@ public class MLModelRegistry {
     }
 
     /**
-     * Activate a model version and update the cache.
+     * 激活某个模型版本并更新缓存。
      */
     public void activateModel(String symbol, Long modelId) {
         activeModels.remove(symbol); // Clear cache — will reload on next getModel()
@@ -62,7 +62,7 @@ public class MLModelRegistry {
     }
 
     /**
-     * Reload the active model for a symbol (clear cache).
+     * 重新加载指定交易标的（Symbol）的活跃模型（并清除缓存）。
      */
     public void reloadModel(String symbol) {
         activeModels.remove(symbol);

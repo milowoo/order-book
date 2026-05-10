@@ -11,15 +11,14 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 
 /**
- * Inventory-based spread calculator.
+ * 基于库存的价差计算器。
  * <p>
- * Adjusts spread based on deviation of current base token position from target.
- * When long (position > target): bid spread widens (discourage buying),
- * ask spread narrows (encourage selling).
- * When short: the opposite.
+ * 根据当前基础代币持仓与目标持仓的偏差来调整价差。
+ * 当持有多头（持仓 > 目标）时：买单价差扩大（抑制买入），
+ * 卖单价差缩小（鼓励卖出）。
+ * 当持有空头时：反之亦然。
  * <p>
- * Alpha signal integration: if an AlphaAggregator is provided, the target
- * position is dynamically adjusted based on alpha direction.
+ * Alpha 信号集成：如果提供了 AlphaAggregator，则会根据 Alpha 的方向动态调整目标持仓。
  */
 @Slf4j
 public class InventoryBasedSpreadCalculator implements SpreadCalculator {

@@ -8,7 +8,7 @@ import lombok.Data;
 import java.math.BigDecimal;
 
 /**
- * Runtime statistics for a single exchange used by SOR routing decisions.
+ * 交易所的运行时统计数据，用于智能订单路由（SOR）的决策。
  */
 @Data
 @Builder

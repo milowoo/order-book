@@ -17,8 +17,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
- * In-memory PnL tracking service using FIFO cost basis.
- * Tracks fills per symbol, computes realized/unrealized PnL and fees.
+ * 基于先进先出成本法的内存盈亏跟踪服务。
+ * 跟踪每个交易标的的成交记录，并计算已实现/未实现盈亏及手续费。
  */
 @Slf4j
 @Service

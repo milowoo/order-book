@@ -13,8 +13,8 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Maintains real-time statistics for all exchanges.
- * Refreshed periodically from FeeService and other sources.
+ * 维护所有交易所的实时统计数据。
+ * 数据会定期从费率服务（FeeService）及其他数据源进行刷新。
  */
 @Slf4j
 @Service

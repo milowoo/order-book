@@ -1,13 +1,11 @@
 package com.orderbook.core.strategy.risk;
 
-import com.orderbook.core.config.ApolloConfig;
 import lombok.extern.slf4j.Slf4j;
 
 import java.math.BigDecimal;
 
 /**
- * Risk check that rejects orders if a single symbol exceeds
- * the configured concentration limit (% of total portfolio value).
+ * 风险检查：如果单一交易标的的持仓超过了设定的集中度限制（占总投资组合价值的百分比），则拒绝下单。
  */
 @Slf4j
 public class ConcentrationRisk implements RiskCheck {

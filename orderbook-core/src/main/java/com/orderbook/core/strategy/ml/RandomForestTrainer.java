@@ -5,7 +5,7 @@ import java.util.List;
 import java.util.Random;
 
 /**
- * Random Forest training via bootstrap aggregation + CART.
+ * 基于自助聚合与分类回归树的随机森林训练。
  */
 public class RandomForestTrainer {
 

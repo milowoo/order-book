@@ -5,7 +5,6 @@ import com.orderbook.cmd.ExchangeFunc;
 import com.orderbook.core.annotation.Command;
 import com.orderbook.core.cmd.BaseCmd;
 import com.orderbook.core.domain.OrderBook;
-import com.orderbook.core.domain.PriceLevel;
 import com.orderbook.core.domain.SymbolBo;
 import com.orderbook.core.store.OrderBookStore;
 import lombok.RequiredArgsConstructor;

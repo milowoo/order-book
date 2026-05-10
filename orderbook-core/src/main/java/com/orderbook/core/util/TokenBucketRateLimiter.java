@@ -7,9 +7,9 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Token bucket rate limiter using Semaphore + scheduled refill.
- * Replaces the old spin-wait loop with proper blocking via Semaphore.acquire().
- * Thread-safe.
+ * 基于信号量与定时补充机制的令牌桶限流器。
+ * 通过信号量获取操作实现真正的阻塞，取代了旧版的自旋等待循环。
+ * 线程安全。
  */
 @Slf4j
 public class TokenBucketRateLimiter {

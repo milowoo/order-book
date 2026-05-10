@@ -23,10 +23,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
- * Portfolio-level risk manager.
- * Aggregates positions across all symbols and computes portfolio-level risk metrics
- * such as total value, drawdown, VaR, Sharpe ratio, and correlation matrix.
- * Refreshed periodically on a @Scheduled timer.
+ * 投资组合级别的风险管理器。
+ * 聚合所有交易标的的持仓，并计算投资组合级别的风险指标，
+ * 例如：总价值、回撤、风险价值、夏普比率以及相关系数矩阵。
+ * 通过定时任务周期性刷新。
  */
 @Slf4j
 @Service

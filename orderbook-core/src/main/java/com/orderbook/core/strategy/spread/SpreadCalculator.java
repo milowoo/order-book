@@ -5,15 +5,16 @@ import com.orderbook.core.domain.SymbolBo;
 import java.math.BigDecimal;
 
 /**
- * Calculates the price offset (spread) for market-making orders.
+ * 计算做市订单的价格偏移量（价差）。
  * <p>
- * Ask prices:  referencePrice + offset (sell at a premium)
- * Bid prices:  referencePrice - offset (buy at a discount)
+ * 卖单价格：参考价格 + 偏移量（以溢价卖出）
+ * 买单价格：参考价格 - 偏移量（以折价买入）
  */
 public interface SpreadCalculator {
 
     /**
      * Calculate the price offset for one side of the order book.
+     * 计算订单簿某一侧的价格偏移量。
      *
      * @param symbol   trading pair key (e.g. "BTCUSDT")
      * @param isBid    true for bid side, false for ask side

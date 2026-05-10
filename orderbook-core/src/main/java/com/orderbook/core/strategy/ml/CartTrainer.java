@@ -3,14 +3,14 @@ package com.orderbook.core.strategy.ml;
 import java.util.*;
 
 /**
- * CART (Classification And Regression Tree) training algorithm.
- * Builds a binary regression tree by recursively splitting data
- * to minimize MSE (Mean Squared Error).
+ * CART（分类与回归树）训练算法。
+ * 通过递归地分割数据以最小化均方误差（MSE），
+ * 来构建一棵二叉回归树。
  */
 public class CartTrainer {
 
     /**
-     * Train a regression decision tree.
+     * 训练一棵回归决策树。
      *
      * @param data           training examples
      * @param maxDepth       maximum tree depth
@@ -29,7 +29,7 @@ public class CartTrainer {
     }
 
     /**
-     * Train with feature subsampling (used by RandomForest).
+     * 使用特征子采样进行训练（由随机森林使用）。
      */
     public DecisionTree train(List<TrainingExample> data, int[] featureSubset,
                                int maxDepth, int minSamplesLeaf) {
@@ -79,7 +79,7 @@ public class CartTrainer {
     }
 
     /**
-     * Find the best split by iterating over features and thresholds.
+     * 通过遍历特征和阈值来寻找最佳分裂点。
      */
     private SplitResult findBestSplit(List<TrainingExample> data, int[] featureIndices) {
         double totalMse = computeMse(data);

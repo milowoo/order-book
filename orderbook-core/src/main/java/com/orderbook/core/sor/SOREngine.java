@@ -11,8 +11,8 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * Smart Order Routing engine.
- * Selects the best exchange for order placement based on configurable strategy.
+ * 智能订单路由（SOR）引擎。
+ * 根据可配置的策略，选择最佳的交易所进行下单。
  */
 @Slf4j
 @Service
@@ -27,7 +27,7 @@ public class SOREngine {
     }
 
     /**
-     * Select the best exchange for placing an order.
+     * 选择最佳的交易所进行下单。
      */
     public ExchangeCode selectExchange(String symbol, String side,
                                         BigDecimal price, BigDecimal qty) {
@@ -49,7 +49,7 @@ public class SOREngine {
     }
 
     /**
-     * Select fallback exchange when the primary fails.
+     *  当主交易所失败时，选择备用的交易所。
      */
     public ExchangeCode selectFallback(ExchangeCode failedExchange) {
         if (!apolloConfig.getSOREnabled()) {
@@ -67,7 +67,7 @@ public class SOREngine {
     }
 
     /**
-     * Rank all healthy exchanges by the configured strategy.
+     * 根据配置的策略，对所有健康的交易所进行排名。
      */
     public List<ExchangeCode> rankExchanges(String symbol) {
         RoutingStrategy strategy = getRoutingStrategy();
@@ -107,7 +107,7 @@ public class SOREngine {
     }
 
     /**
-     * Weighted score combining fee, latency, and liquidity (0-1 range each).
+     * 结合了费率、延迟和流动性的加权得分（每项指标均为 0-1 范围）。
      */
     private double weightedScore(ExchangeStats stats) {
         double feeScore = 1.0 / (1.0 + stats.getTakerFeeRate().doubleValue() * 1000);

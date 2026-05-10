@@ -17,8 +17,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Orchestrates the full ML training pipeline:
- * load data → train → evaluate → save → optionally activate.
+ * 编排完整的机器学习训练流水线：
+ * 加载数据 → 训练 → 评估 → 保存 → （可选）激活。
  */
 @Slf4j
 @Service
@@ -45,7 +45,7 @@ public class ModelTrainerService {
     }
 
     /**
-     * Full training pipeline for a symbol.
+     * 针对指定交易标的（Symbol）的完整训练流水线。
      */
     public ModelVersionEntity train(String symbol, MLConfig config) {
         log.info("[ML] Starting training for {} with config: nTrees={}, maxDepth={}, minSamplesLeaf={}, featureRatio={}",
@@ -136,7 +136,7 @@ public class ModelTrainerService {
     }
 
     /**
-     * Activate a model version (deactivate current, activate new).
+     * 激活某个模型版本（先停用当前版本，再激活新版本）。
      */
     public boolean activateModel(Long modelId) {
         ModelVersionEntity newActive = modelVersionMapper.selectById(modelId);
@@ -165,7 +165,7 @@ public class ModelTrainerService {
     }
 
     /**
-     * Get the active model for a symbol (loads from DB).
+     * 获取指定交易标的（Symbol）的活跃模型（从数据库加载）。
      */
     public RandomForestModel getActiveModel(String symbol) {
         ModelVersionEntity entity = modelVersionMapper.selectOne(
@@ -178,7 +178,7 @@ public class ModelTrainerService {
     }
 
     /**
-     * Auto-training scheduled task.
+     * 自动训练定时任务。
      */
     @Scheduled(fixedDelay = 3600000) // Every hour
     public void autoTrain() {
@@ -221,8 +221,9 @@ public class ModelTrainerService {
         return MAPPER.writeValueAsString(params);
     }
 
+
     /**
-     * Get the feature extractor for training data collection.
+     * 获取用于训练数据收集的特征提取器。
      */
     public CartTrainer getCartTrainer() { return cartTrainer; }
     public RandomForestTrainer getRandomForestTrainer() { return randomForestTrainer; }

@@ -40,8 +40,8 @@ public class OrdersMakerImpl extends AbstractOrdersCmd implements OrdersMaker {
     @Autowired
     private SOREngine sorEngine;
 
-    // Arbitrage signal from strategy: factor [0,1] to tighten spread
-    // Set via env in call(), consumed in adjustOrderBook()
+    // Arbitrage signal from strategy: factor [0,1] to tighten spread 来自策略的套利信号：一个 [0,1] 区间的因子，用于收窄价差
+    // Set via env in call(), consumed in adjustOrderBook() 在 call() 方法中通过环境变量设置，并在 adjustOrderBook() 方法中被消费使用
     private volatile BigDecimal arbitrageTightenFactor = BigDecimal.ONE;
 
     @Override
@@ -51,7 +51,7 @@ public class OrdersMakerImpl extends AbstractOrdersCmd implements OrdersMaker {
             SymbolBo symbolBo = symbolStore.findSymbolById(symbol);
             if (symbolBo == null) return false;
 
-            // Read arbitrage signal from env (if any)
+            // Read arbitrage signal from env (if any) 从环境变量中读取套利信号（如果存在的话）
             updateArbitrageSignal(env);
 
             OrderBook bybitOrderBook = orderBookStore.get(ExchangeCode.BYBIT, symbolBo.getSymbolId());
@@ -63,7 +63,7 @@ public class OrdersMakerImpl extends AbstractOrdersCmd implements OrdersMaker {
             OrderBook orderBook = orderBookStore.get(exchangeCode, symbolBo.getSymbolId());
             if (orderBook == null) return false;
 
-            // Resolve target exchange via SOR (if enabled)
+            // Resolve target exchange via SOR (if enabled) 通过智能订单路由系统确定目标交易所（如果该功能已启用）
             ExchangeCode targetExchange = resolveExchange(symbolBo, exchangeCode);
 
             // 获取用户的活跃订单（从本地缓存读取，避免每 tick 的 REST 调用）

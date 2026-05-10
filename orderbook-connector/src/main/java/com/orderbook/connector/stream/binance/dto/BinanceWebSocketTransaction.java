@@ -1,7 +1,6 @@
-package org.knowm.xchange.binance.dto.marketdata;
+package com.orderbook.connector.stream.binance.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import org.knowm.xchange.binance.dto.BinanceException;
 
 public class BinanceWebSocketTransaction {
 

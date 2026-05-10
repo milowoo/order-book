@@ -12,9 +12,15 @@ public class BacktestSnapshot {
     private final BigDecimal bestAsk;
     private final List<PriceLevel> bids;
     private final List<PriceLevel> asks;
+    private final String exchange;
 
     public BacktestSnapshot(long time, BigDecimal bestBid, BigDecimal bestAsk,
                             List<PriceLevel> bids, List<PriceLevel> asks) {
+        this(time, bestBid, bestAsk, bids, asks, null);
+    }
+
+    public BacktestSnapshot(long time, BigDecimal bestBid, BigDecimal bestAsk,
+                            List<PriceLevel> bids, List<PriceLevel> asks, String exchange) {
         this.time = time;
         this.bestBid = bestBid;
         this.bestAsk = bestAsk;
@@ -23,6 +29,7 @@ public class BacktestSnapshot {
                 : BigDecimal.ZERO;
         this.bids = bids;
         this.asks = asks;
+        this.exchange = exchange;
     }
 
     public long getTime() { return time; }
@@ -31,4 +38,5 @@ public class BacktestSnapshot {
     public BigDecimal getBestAsk() { return bestAsk; }
     public List<PriceLevel> getBids() { return bids; }
     public List<PriceLevel> getAsks() { return asks; }
+    public String getExchange() { return exchange; }
 }

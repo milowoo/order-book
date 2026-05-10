@@ -5,7 +5,6 @@ import com.orderbook.cmd.ExchangeCode;
 import com.orderbook.core.domain.ExchangeInfo;
 import com.orderbook.connector.interfaces.StreamConnectorFactory;
 import com.orderbook.connector.stream.binance.BinanceStreamingExchange;
-import com.orderbook.connector.stream.binance.BinanceSubscriptionType;
 import com.orderbook.core.config.ExchangeConnectConfig;
 import com.orderbook.core.domain.SymbolBo;
 import com.orderbook.core.exchange.disruptor.OrderBookDisruptor;

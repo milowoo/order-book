@@ -4,12 +4,11 @@ import com.orderbook.core.domain.SymbolBo;
 import lombok.extern.slf4j.Slf4j;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 
 /**
- * Portfolio-level max drawdown risk check.
- * Delegates portfolio value computation to the shared {@link PortfolioRiskManager},
- * eliminating the double-counting bug from per-symbol USDT balance aggregation.
+ * 投资组合级别的最大回撤风险检查。
+ * 将投资组合价值的计算委托给共享的 {@link PortfolioRiskManager}，
+ * 从而消除了因按交易标的聚合 USDT 余额而导致的重复计算错误。
  */
 @Slf4j
 public class MaxDrawdownRisk implements RiskCheck {

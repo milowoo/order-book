@@ -3,8 +3,8 @@ package com.orderbook.core.arbitrage;
 import java.math.BigDecimal;
 
 /**
- * Cross-exchange arbitrage configuration.
- * Values loaded from ApolloConfig on each scan.
+ * 跨交易所套利配置。
+ * 每次扫描时从 ApolloConfig 加载数值。
  */
 public class ArbitrageConfig {
     private boolean enabled = true;

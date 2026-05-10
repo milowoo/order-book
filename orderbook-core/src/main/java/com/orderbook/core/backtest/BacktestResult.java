@@ -24,6 +24,12 @@ public class BacktestResult {
     private BigDecimal totalFees;
     private List<BacktestTrade> trades = new ArrayList<>();
 
+    // Enhanced fields
+    private List<BigDecimal> equityCurve = new ArrayList<>();
+    private BigDecimal calmarRatio;
+    private BigDecimal avgTradePnl;
+    private BigDecimal profitFactor;
+
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
     public String getSymbol() { return symbol; }
@@ -60,4 +66,12 @@ public class BacktestResult {
     public void setTotalFees(BigDecimal totalFees) { this.totalFees = totalFees; }
     public List<BacktestTrade> getTrades() { return trades; }
     public void setTrades(List<BacktestTrade> trades) { this.trades = trades; }
+    public List<BigDecimal> getEquityCurve() { return equityCurve; }
+    public void setEquityCurve(List<BigDecimal> equityCurve) { this.equityCurve = equityCurve; }
+    public BigDecimal getCalmarRatio() { return calmarRatio; }
+    public void setCalmarRatio(BigDecimal calmarRatio) { this.calmarRatio = calmarRatio; }
+    public BigDecimal getAvgTradePnl() { return avgTradePnl; }
+    public void setAvgTradePnl(BigDecimal avgTradePnl) { this.avgTradePnl = avgTradePnl; }
+    public BigDecimal getProfitFactor() { return profitFactor; }
+    public void setProfitFactor(BigDecimal profitFactor) { this.profitFactor = profitFactor; }
 }

@@ -14,17 +14,21 @@
        ▼
   OrderBookStore      ← 统一订单簿聚合
        │
-       ▼
-  SpreadCalculator    ← 价差计算（4 种模型）
-  AlphaAggregator     ← Alpha 信号（订单流 / 动量 / ML）
-  RiskControl         ← 风控检查（熔断 / 回撤 / 订单数 / 偏离 / 集中度）
-  PortfolioRiskManager← 组合风控（VaR / Sharpe / 相关性 / 集中度）
-       │
-       ▼
-  SOREngine           ← 智能路由（最优交易所选择）
-       │
-       ▼
-  OrdersMakerImpl     ← 同步订单簿 + 铺单执行
+       ├──────────────────────────┐
+       ▼                          ▼
+  SpreadCalculator        ArbitrageDetector
+  AlphaAggregator         跨交易所价差扫描
+  RiskControl
+  PortfolioRiskManager
+       │                          │
+       ▼                          ▼
+  SOREngine               arbitrageTightenFactor
+       │                   收紧做市价差以捕捉套利
+       │                          │
+       └──────────┬───────────────┘
+                  ▼
+          OrdersMakerImpl
+          同步订单簿 + 铺单执行
 ```
 
 ## 项目模块
@@ -427,6 +431,71 @@ score = 0.4 × feeScore + 0.3 × latScore + 0.3 × liqScore
 
 ---
 
+## 跨交易所套利 (Arbitrage)
+
+系统实时监控 Bybit、Binance、Bitget、OSL_GLOBAL 四家交易所之间的价差，发现无风险套利机会后通过收紧做市价差来捕捉。
+
+### 检测引擎
+
+`ArbitrageDetector` 每个策略 tick 扫描所有交易所对（4×3=12 对），计算每对的套利利润：
+
+```
+ArbitrageDetector.scan(symbol)
+  └── for each (exA, exB) where exA != exB:
+       ├── buyPrice  = exA.getBestAskPrice()     ← 在 A 买入
+       ├── sellPrice = exB.getBestBidPrice()      ← 在 B 卖出
+       ├── theoreticalProfit = sellPrice - buyPrice
+       ├── fee = takerFee(exA) + takerFee(exB)    ← 双边吃单费率
+       ├── netProfit = theoreticalProfit - fee
+       ├── maxQty = min(bidQty, askQty, config.maxOrderQty)
+       └── executable = (exA==OSL_GLOBAL || exB==OSL_GLOBAL)
+```
+
+### 套利与做市的联动
+
+检测到的套利机会不会直接下单执行，而是通过 `arbitrageTightenFactor` 收紧做市价差，使做市挂单更有竞争力：
+
+```
+OrdersMakerImpl.call()
+  ├── updateArbitrageSignal(env) ← 从 env 读取 arb_net_profit
+  ├── tightenFactor = max(0.5, 1.0 - netProfit × 0.01)
+  └── adjustOrderBook()
+       ├── askOffset *= tightenFactor    ← 卖单价差缩小
+       └── bidOffset *= tightenFactor    ← 买单价差缩小
+```
+
+套利信号量化转化为价差收紧量：
+- **利润较高**（如 >50 USDT）→ `tightenFactor=0.5` → 价差缩小 50%
+- **利润较低**（如 <10 USDT）→ `tightenFactor≈0.9` → 价差缩小 10%
+- **无套利** → `tightenFactor=1.0` → 正常做市
+
+### 适用条件
+
+套利机会的判定受以下约束：
+- 正套利：`sellPrice > buyPrice`
+- 净收益超过阈值（默认 0.5 USDT），扣除双边吃单费率后
+- 盘口深度足够：买卖双方的 top 档位量均满足最小交易量
+- 执行窗口：仅当买卖任一方向涉及 OSL_GLOBAL 时才标记为可执行
+
+### REST API
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/arbitrage/opportunities` | GET | 当前所有 symbol 的最新套利机会 |
+| `/api/arbitrage/history` | GET | 最近 100 条历史套利记录 |
+| `/api/arbitrage/stats` | GET | 扫描统计（总扫描次数、总机会数） |
+| `/api/arbitrage/scan/{symbol}` | POST | 手动触发指定 symbol 的扫描 |
+
+### 套利参数
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `arbitrage.enabled` | true | 套利检测总开关 |
+| `arbitrage.minProfitUsdt` | 0.5 | 最小净套利利润 (USDT) |
+| `arbitrage.maxOrderQty` | 1 | 单笔最大套利数量 |
+
+---
+
 ## 监控与指标 (Prometheus)
 
 系统通过 Micrometer + Prometheus 暴露完整监控指标：
@@ -455,19 +524,21 @@ score = 0.4 × feeScore + 0.3 × latScore + 0.3 × liqScore
 ```
 1. 记录中间价 (VolatilityTracker 更新)
 2. 风控检查：熔断 / 回撤 / 订单数 / 价格偏离 / 集中度
-3. CancelOrderBookOutOrder  — 撤销订单簿范围外的挂单
-4. UpdateOrderCount         — 更新活跃订单计数
-5. MaxDrawdownRisk.update   — 更新组合价值
-6. OrdersMakerImpl          — 同步订单簿并铺单
-   ├── resolveExchange()     — SOR 选择目标交易所（可选）
-   ├── adjustOrderBook()     — SpreadCalculator 计算价格偏移
-   ├── processOnlyInOSL()    — 撤除本地已有、bybit 已无的订单
-   ├── processOnlyInBybit()  — 补充 bybit 有、本地没有的订单
-   ├── processOrders()       — 调整数量偏离容忍区间的订单
-   ├── batchCancelOrder()    — 批量撤单
-   └── batchPlaceOrder()     — 批量下单
-7. PortfolioRiskManager      — 每 5 秒刷新组合风控指标
-8. MetricsService.refreshAll() — 更新 Prometheus 指标
+3. ArbitrageDetector.scan()  — 扫描跨交易所价差套利机会
+4. CancelOrderBookOutOrder   — 撤销订单簿范围外的挂单
+5. UpdateOrderCount          — 更新活跃订单计数
+6. MaxDrawdownRisk.update    — 更新组合价值
+7. OrdersMakerImpl           — 同步订单簿并铺单
+   ├── updateArbitrageSignal() — 读取套利信号，计算价差收紧因子
+   ├── resolveExchange()       — SOR 选择目标交易所（可选）
+   ├── adjustOrderBook()       — SpreadCalculator 计算价格偏移 × tightenFactor
+   ├── processOnlyInOSL()      — 撤除本地已有、bybit 已无的订单
+   ├── processOnlyInBybit()    — 补充 bybit 有、本地没有的订单
+   ├── processOrders()         — 调整数量偏离容忍区间的订单
+   ├── batchCancelOrder()      — 批量撤单
+   └── batchPlaceOrder()       — 批量下单
+8. PortfolioRiskManager       — 每 5 秒刷新组合风控指标
+9. MetricsService.refreshAll() — 更新 Prometheus 指标
 ```
 
 ---

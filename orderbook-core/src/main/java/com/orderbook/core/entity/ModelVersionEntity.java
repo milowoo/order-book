@@ -8,6 +8,7 @@ import lombok.NoArgsConstructor;
 
 /**
  * ML model version metadata and serialized model data.
+ * 机器学习模型的版本元数据及序列化模型数据。
  */
 @Data
 @Builder

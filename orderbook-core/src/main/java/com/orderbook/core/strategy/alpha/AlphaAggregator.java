@@ -3,7 +3,6 @@ package com.orderbook.core.strategy.alpha;
 import com.orderbook.core.domain.SymbolBo;
 import com.orderbook.core.store.OrderBookStore;
 import com.orderbook.core.strategy.ml.MLAlphaSignal;
-import com.orderbook.core.strategy.ml.MLConfig;
 import com.orderbook.core.strategy.ml.MLModel;
 import com.orderbook.core.strategy.spread.VolatilityTracker;
 import lombok.extern.slf4j.Slf4j;

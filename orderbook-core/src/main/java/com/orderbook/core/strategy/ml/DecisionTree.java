@@ -19,7 +19,9 @@ public class DecisionTree {
         this.root = root;
     }
 
-    /** Predict a value for the given feature vector. */
+    /**
+     * 对给定的特征向量进行数值预测。
+     */
     public double predict(double[] features) {
         if (root == null) return 0.0;
         Node node = root;
@@ -33,7 +35,9 @@ public class DecisionTree {
         return node.leafValue;
     }
 
-    /** Get the root node (used by serializers and model inspection). */
+    /**
+     * 获取根节点（由序列化器和模型检查功能使用）。
+     */
     public Node getRoot() {
         return root;
     }

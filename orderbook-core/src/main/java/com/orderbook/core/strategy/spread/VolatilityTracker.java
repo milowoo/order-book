@@ -10,11 +10,10 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Tracks rolling mid-price volatility per symbol.
+ * 追踪每个交易标的的滚动中间价波动率。
  * <p>
- * Maintains a ring buffer of recent mid-prices and computes the
- * coefficient of variation (stddev / mean) as a volatility metric.
- * Thread-safe: synchronized on per-symbol LinkedList.
+ * 维护一个最近中间价的环形缓冲区，并计算变异系数（标准差 / 均值）作为波动率指标。
+ * 线程安全：基于每个交易标的的 LinkedList 进行同步。
  */
 @Slf4j
 @Component

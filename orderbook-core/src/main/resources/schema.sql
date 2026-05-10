@@ -91,3 +91,32 @@ CREATE TABLE IF NOT EXISTS model_version (
     INDEX idx_symbol_active (symbol, active),
     INDEX idx_symbol_created (symbol, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='ML model versions and metadata';
+
+-- Backtest results
+CREATE TABLE IF NOT EXISTS backtest_result (
+    id VARCHAR(32) PRIMARY KEY,
+    symbol VARCHAR(32) NOT NULL,
+    model VARCHAR(32) NOT NULL,
+    start_time BIGINT NOT NULL,
+    end_time BIGINT NOT NULL,
+    total_ticks INT NOT NULL DEFAULT 0,
+    initial_capital DECIMAL(24,8) NOT NULL,
+    final_balance DECIMAL(24,8) NOT NULL,
+    total_return DECIMAL(10,4) NOT NULL DEFAULT 0,
+    annualized_return DECIMAL(10,4) DEFAULT NULL,
+    sharpe_ratio DECIMAL(10,4) DEFAULT NULL,
+    calmar_ratio DECIMAL(10,4) DEFAULT NULL,
+    max_drawdown DECIMAL(10,4) NOT NULL DEFAULT 0,
+    total_trades INT NOT NULL DEFAULT 0,
+    winning_trades INT NOT NULL DEFAULT 0,
+    losing_trades INT NOT NULL DEFAULT 0,
+    win_rate DECIMAL(6,2) DEFAULT NULL,
+    profit_factor DECIMAL(10,4) DEFAULT NULL,
+    total_fees DECIMAL(24,8) NOT NULL DEFAULT 0,
+    config_json JSON COMMENT 'full BacktestConfig serialization',
+    equity_curve_json MEDIUMTEXT COMMENT 'JSON array of equity values',
+    created_at BIGINT NOT NULL,
+    INDEX idx_symbol (symbol),
+    INDEX idx_model (model),
+    INDEX idx_sharpe (sharpe_ratio)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='backtest run results';

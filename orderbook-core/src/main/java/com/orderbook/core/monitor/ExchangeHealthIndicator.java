@@ -12,6 +12,7 @@ import java.util.Map;
 /**
  * Custom HealthIndicator that reports WebSocket connection health
  * for all configured exchange handlers.
+ * 自定义健康检查指示器，用于汇报所有已配置的交易所处理器的 WebSocket 连接健康状况。
  */
 @Slf4j
 @Component

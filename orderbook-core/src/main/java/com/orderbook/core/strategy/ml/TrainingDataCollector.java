@@ -18,8 +18,8 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Collects training data during live strategy execution.
- * Captures feature snapshots and generates labels after N periods.
+ * 在策略实盘执行期间收集训练数据。
+ * 捕捉特征快照，并在 N 个周期后生成标签。
  */
 @Slf4j
 @Service
@@ -47,8 +47,8 @@ public class TrainingDataCollector {
     }
 
     /**
-     * Extract features and store as an unlabeled example.
-     * Called from the strategy tick.
+     * 提取特征并存储为未标记样本。
+     * 由策略的 Tick 回调调用。
      */
     public void captureFeatures(String symbol, SymbolBo symbolBo) {
         int tick = tickCounters.merge(symbol, 1, (old, v) -> (old + 1) % featureCaptureInterval);
@@ -74,7 +74,7 @@ public class TrainingDataCollector {
     }
 
     /**
-     * Generate labels for pending examples by comparing current price to capture-time price.
+     * 通过比较当前价格与捕捉时的价格，为待处理的样本生成标签。
      */
     public void generateLabels(String symbol) {
         List<UnlabeledExample> pending = pendingExamples.get(symbol);

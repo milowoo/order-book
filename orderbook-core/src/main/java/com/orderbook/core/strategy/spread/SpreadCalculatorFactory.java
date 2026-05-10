@@ -17,8 +17,8 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Factory that builds and caches SpreadCalculator instances per symbol.
- * Configuration is read from SpreadConfig (strategy.spread.symbols.*).
+ * 用于构建并缓存每个交易标的 SpreadCalculator 实例的工厂。
+ * 配置信息从 SpreadConfig 中读取（对应配置项为 strategy.spread.symbols.*）。
  */
 @Slf4j
 @Service
