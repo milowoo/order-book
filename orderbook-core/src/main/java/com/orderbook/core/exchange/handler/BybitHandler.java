@@ -9,6 +9,7 @@ import com.orderbook.connector.stream.bybit.BybitStreamingTradeService;
 import com.orderbook.core.config.ExchangeConnectConfig;
 import com.orderbook.core.domain.*;
 import com.orderbook.core.exchange.disruptor.OrderBookDisruptor;
+import com.orderbook.core.service.PnlService;
 import com.orderbook.core.store.AccountStore;
 import com.orderbook.core.store.OpenOrdersStore;
 import com.orderbook.core.store.PriceStore;
@@ -37,6 +38,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -60,12 +64,25 @@ public class BybitHandler {
     private Set<String> subscribeSymbolPri = new HashSet<>();
     private final List<Disposable> disposables = new ArrayList<>();
 
+    // Heartbeat tracking
+    private final AtomicLong lastMessageTime = new AtomicLong(System.currentTimeMillis());
+    private static final long HEARTBEAT_TIMEOUT_MS = 60_000L;
+
+    // PnL tracking
+    @Autowired
+    private PnlService pnlService;
+    private final ConcurrentMap<String, BigDecimal> lastDealQty = new ConcurrentHashMap<>();
+
     private static ExchangeCode getExchange() {
         return ExchangeCode.BYBIT;
     }
 
     @PostConstruct
     public void init() {
+        connectAndSubscribe();
+    }
+
+    void connectAndSubscribe() {
         log.info("BybitHandler init begin ");
         List<SymbolBo> symbolBos = symbolStore.getActiveSymbols();
         if (CollUtil.isEmpty(symbolBos)) {
@@ -94,7 +111,42 @@ public class BybitHandler {
             log.error("Failed to initialize BybitHandler", e);
             throw e;
         }
+        lastMessageTime.set(System.currentTimeMillis());
         log.info("BybitHandler init end ");
+    }
+
+    /** Check connection health and reconnect if needed. */
+    @Scheduled(fixedDelay = 30_000)
+    public void checkConnection() {
+        boolean pubAlive = pubExchange == null || pubExchange.isAlive();
+        boolean priAlive = priExchange == null || priExchange.isAlive();
+        long idle = System.currentTimeMillis() - lastMessageTime.get();
+        if (!pubAlive || !priAlive || idle > HEARTBEAT_TIMEOUT_MS) {
+            log.warn("[Bybit] Connection unhealthy: pubAlive={}, priAlive={}, idle={}ms", pubAlive, priAlive, idle);
+            reconnect();
+        }
+    }
+
+    private synchronized void reconnect() {
+        log.warn("[Bybit] Reconnecting...");
+        dispose();
+        if (pubExchange != null) { try { pubExchange.disconnect(); } catch (Exception e) { /* ignore */ } }
+        if (priExchange != null) { try { priExchange.disconnect(); } catch (Exception e) { /* ignore */ } }
+        pubExchange = null;
+        priExchange = null;
+        lastDealQty.clear();
+        connectAndSubscribe();
+        lastMessageTime.set(System.currentTimeMillis());
+        log.warn("[Bybit] Reconnect complete");
+    }
+
+    /**
+     * Check if the exchange connection is healthy.
+     */
+    public boolean isConnectionHealthy() {
+        boolean pubAlive = pubExchange == null || pubExchange.isAlive();
+        boolean priAlive = priExchange == null || priExchange.isAlive();
+        return pubAlive && priAlive;
     }
 
     //共有行情订阅
@@ -156,6 +208,8 @@ public class BybitHandler {
     @PreDestroy
     public void onExit() {
         dispose();
+        if (pubExchange != null) { try { pubExchange.disconnect(); } catch (Exception e) { /* ignore */ } }
+        if (priExchange != null) { try { priExchange.disconnect(); } catch (Exception e) { /* ignore */ } }
     }
 
     private String getOrderBookSymbol(OrderBook orderBook) {
@@ -169,6 +223,7 @@ public class BybitHandler {
 
     //处理order book
     public void handlerOrderBook(OrderBook orderBook) {
+        lastMessageTime.set(System.currentTimeMillis());
         if (Objects.isNull(orderBook) || (orderBook.getAsks().isEmpty() && orderBook.getBids().isEmpty())) {
             return;
         }
@@ -194,6 +249,7 @@ public class BybitHandler {
     }
 
     private void handlerTicker(Ticker ticker) {
+        lastMessageTime.set(System.currentTimeMillis());
         if (Objects.isNull(ticker)) {
             return;
         }
@@ -204,20 +260,38 @@ public class BybitHandler {
     }
 
     private void handlerOrder(Order order) {
-        log.info("bybit OrderHandler order subscribe order {} ", order);
+        lastMessageTime.set(System.currentTimeMillis());
+        log.debug("bybit OrderHandler order subscribe order {} ", order);
         String symbol = order.getInstrument().toString();
         OpenOrdersBo openOrdersBo = OpenOrdersStore.getOpenOrders(getExchange(), symbol);
         if (openOrdersBo == null) {
             log.error("handlerOrder get open order store err {}", order);
             return;
         }
-        openOrdersBo.updateOpenOrder(convertOrder((LimitOrder) order));
+        OrderBo orderBo = convertOrder((LimitOrder) order);
+        openOrdersBo.updateOpenOrder(orderBo);
+
+        // Track fills for PnL
+        BigDecimal dealQty = orderBo.getDealQuantity();
+        BigDecimal lastQty = lastDealQty.getOrDefault(orderBo.getClientOrderId(), BigDecimal.ZERO);
+        if (dealQty != null && dealQty.compareTo(lastQty) > 0) {
+            BigDecimal newFillQty = dealQty.subtract(lastQty);
+            lastDealQty.put(orderBo.getClientOrderId(), dealQty);
+            // Extract real fee from Order object (mapped by BybitStreamAdapters from cumExecFee)
+            BigDecimal fee = order.getFee() != null ? order.getFee() : BigDecimal.ZERO;
+            pnlService.recordFill(symbol, orderBo.getSide(),
+                    orderBo.getDealPriceAvg() != null ? orderBo.getDealPriceAvg() : orderBo.getPrice(),
+                    newFillQty, fee, getExchange().name(),
+                    orderBo.getClientOrderId() + "-" + System.currentTimeMillis());
+        }
     }
 
     private OrderBo convertOrder(LimitOrder order) {
         OrderBo orderBo = new OrderBo();
         orderBo.setClientOrderId(order.getUserReference());
-        orderBo.setOrderId(Long.parseLong(order.getId()));
+        if (order.getId() != null) {
+            orderBo.setOrderId(Long.parseLong(order.getId()));
+        }
         orderBo.setSymbolId(order.getInstrument().toString());
         if ("bid".equalsIgnoreCase(order.getType().name()) || "EXIT_BID".equalsIgnoreCase(order.getType().name())) {
             orderBo.setSide("buy");
@@ -231,12 +305,24 @@ public class BybitHandler {
         orderBo.setAmount(order.getOriginalAmount());
         orderBo.setRemainingQty(order.getRemainingAmount() == null ? order.getOriginalAmount() : order.getRemainingAmount());
         orderBo.setRemainingAmount(order.getRemainingAmount());
-        orderBo.setCreateTime(order.getTimestamp().getTime());
+
+        // Populate deal fields from cumulative executed values
+        if (order.getCumulativeAmount() != null) {
+            orderBo.setDealQuantity(order.getCumulativeAmount());
+        }
+        if (order.getAveragePrice() != null) {
+            orderBo.setDealPriceAvg(order.getAveragePrice());
+        }
+        if (order.getCumulativeAmount() != null && order.getAveragePrice() != null) {
+            orderBo.setDealAmount(order.getCumulativeAmount().multiply(order.getAveragePrice()));
+        }
+
+        orderBo.setCreateTime(order.getTimestamp() != null ? order.getTimestamp().getTime() : System.currentTimeMillis());
         return orderBo;
     }
 
     private void handlerBalance(Balance balance) {
-        log.info("bybit handlerBalance {}", balance);
+        lastMessageTime.set(System.currentTimeMillis());
         BalanceBo balanceBo = BalanceBo.builder()
                 .coin("USDT")
                 .available(balance.getAvailable())

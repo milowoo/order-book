@@ -1,0 +1,220 @@
+{
+  "title": "OrderBook Maker - Trading Dashboard",
+  "uid": "orderbook-maker-dashboard",
+  "version": 1,
+  "timezone": "browser",
+  "editable": true,
+  "panels": [
+    {
+      "title": "PnL Overview",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "orderbook_pnl_realized",
+          "legendFormat": "Realized PnL",
+          "refId": "A"
+        },
+        {
+          "expr": "orderbook_pnl_unrealized",
+          "legendFormat": "Unrealized PnL",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "custom": { "lineInterpolation": "smooth" }
+        }
+      }
+    },
+    {
+      "title": "Net Position",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "orderbook_position_net{symbol=\"BTCUSDT\"}",
+          "legendFormat": "BTCUSDT",
+          "refId": "A"
+        },
+        {
+          "expr": "orderbook_position_net{symbol=\"ETHUSDT\"}",
+          "legendFormat": "ETHUSDT",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": { "lineInterpolation": "smooth" }
+        }
+      }
+    },
+    {
+      "title": "Connection Health",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "orderbook_connection_healthy{exchange=\"BYBIT\"}",
+          "legendFormat": "Bybit",
+          "refId": "A"
+        },
+        {
+          "expr": "orderbook_connection_healthy{exchange=\"BINANCE\"}",
+          "legendFormat": "Binance",
+          "refId": "B"
+        },
+        {
+          "expr": "orderbook_connection_healthy{exchange=\"BITGET\"}",
+          "legendFormat": "Bitget",
+          "refId": "C"
+        },
+        {
+          "expr": "orderbook_connection_healthy{exchange=\"OSL_GLOBAL\"}",
+          "legendFormat": "Global",
+          "refId": "D"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bool",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Active Orders",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 8 },
+      "targets": [
+        {
+          "expr": "orderbook_orders_active{symbol=\"BTCUSDT\"}",
+          "legendFormat": "BTCUSDT",
+          "refId": "A"
+        },
+        {
+          "expr": "orderbook_orders_active{symbol=\"ETHUSDT\"}",
+          "legendFormat": "ETHUSDT",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "title": "Fill Count",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 8 },
+      "targets": [
+        {
+          "expr": "increase(orderbook_fills_total{symbol=\"BTCUSDT\"}[5m])",
+          "legendFormat": "BTCUSDT",
+          "refId": "A"
+        },
+        {
+          "expr": "increase(orderbook_fills_total{symbol=\"ETHUSDT\"}[5m])",
+          "legendFormat": "ETHUSDT",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "title": "Strategy Latency (p50/p95/p99)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "targets": [
+        {
+          "expr": "orderbook_strategy_latency_seconds{quantile=\"0.5\"}",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "expr": "orderbook_strategy_latency_seconds{quantile=\"0.95\"}",
+          "legendFormat": "p95",
+          "refId": "B"
+        },
+        {
+          "expr": "orderbook_strategy_latency_seconds{quantile=\"0.99\"}",
+          "legendFormat": "p99",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "lineInterpolation": "smooth" }
+        }
+      }
+    },
+    {
+      "title": "Spread Offsets (BTCUSDT)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "targets": [
+        {
+          "expr": "orderbook_spread_ask_offset{symbol=\"BTCUSDT\"}",
+          "legendFormat": "Ask Offset",
+          "refId": "A"
+        },
+        {
+          "expr": "orderbook_spread_bid_offset{symbol=\"BTCUSDT\"}",
+          "legendFormat": "Bid Offset",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "custom": { "lineInterpolation": "smooth" }
+        }
+      }
+    },
+    {
+      "title": "Portfolio Equity",
+      "type": "gauge",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 22 },
+      "targets": [
+        {
+          "expr": "orderbook_pnl_realized + orderbook_pnl_unrealized",
+          "legendFormat": "Total PnL",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 0 },
+              { "color": "green", "value": 100 }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {
+    "refresh_intervals": ["5s", "10s", "30s", "1m", "5m", "15m"],
+    "time_options": ["5m", "15m", "1h", "6h", "12h", "24h", "2d", "7d", "30d"]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": { "text": "Prometheus", "value": "Prometheus" }
+      }
+    ]
+  }
+}

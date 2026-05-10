@@ -15,6 +15,17 @@ spring:
         min-idle: 4
         max-wait: 3000
 
+  # TiDB datasource configuration
+  datasource:
+    url: jdbc:mysql://localhost:4000/orderbook?useSSL=false&rewriteBatchedStatements=true&characterEncoding=utf8mb4
+    username: root
+    password:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql
+
 # For local dev: disable Eureka since there's no local Eureka server
 # In production, override via application-prod.yml or Apollo
 eureka:
@@ -104,3 +115,8 @@ strategy:
         secretKey: ""
         password: ""
 
+# Cross-exchange arbitrage configuration
+arbitrage:
+  enabled: true
+  minProfitUsdt: 0.5
+  maxOrderQty: 1

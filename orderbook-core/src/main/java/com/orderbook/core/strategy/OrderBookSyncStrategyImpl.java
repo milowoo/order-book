@@ -7,13 +7,19 @@ import com.orderbook.core.config.ApolloConfig;
 import com.orderbook.core.config.StrategyProps;
 import com.orderbook.core.domain.OrderBook;
 import com.orderbook.core.domain.SymbolBo;
+import com.orderbook.core.arbitrage.ArbitrageOpportunity;
+import com.orderbook.core.arbitrage.ArbitrageService;
 import com.orderbook.core.store.OpenOrdersStore;
 import com.orderbook.core.store.OrderBookStore;
 import com.orderbook.core.store.PriceStore;
+import com.orderbook.core.strategy.ml.TrainingDataCollector;
 import com.orderbook.core.strategy.risk.MaxDrawdownRisk;
 import com.orderbook.core.strategy.spread.VolatilityTracker;
+import com.orderbook.core.service.PnlService;
 import com.orderbook.core.strategy.risk.CircuitBreakerRisk;
+import com.orderbook.core.strategy.risk.ConcentrationRisk;
 import com.orderbook.core.strategy.risk.MaxOrderCountRisk;
+import com.orderbook.core.strategy.risk.PortfolioRiskManager;
 import com.orderbook.core.strategy.risk.PriceDeviationRisk;
 import com.orderbook.core.strategy.risk.RiskControl;
 import lombok.extern.slf4j.Slf4j;
@@ -61,6 +67,18 @@ public class OrderBookSyncStrategyImpl implements Strategy {
     @Autowired
     private VolatilityTracker volatilityTracker;
 
+    @Autowired
+    private PnlService pnlService;
+
+    @Autowired
+    private ArbitrageService arbitrageService;
+
+    @Autowired
+    private PortfolioRiskManager portfolioRiskManager;
+
+    @Autowired
+    private TrainingDataCollector trainingDataCollector;
+
     private final Map<String, RiskControl> riskControls = new ConcurrentHashMap<>();
 
     @Override
@@ -80,6 +98,9 @@ public class OrderBookSyncStrategyImpl implements Strategy {
         //记录中间价以用于波动率追踪（供价差计算器使用）。
         recordMidPrice(symbol, symbolBo);
 
+        // Capture training data for ML model training
+        trainingDataCollector.captureFeatures(symbol, symbolBo);
+
         RiskControl rc = getOrCreateRiskControl(symbol, symbolBo);
         if (rc.isCircuitBroken()) {
             log.warn("[{}] Circuit breaker open, skipping OrderBookSyncStrategy", symbol);
@@ -94,6 +115,20 @@ public class OrderBookSyncStrategyImpl implements Strategy {
 
         Map<String, Object> env = createEnv(symbol, symbolBo, context);
         ExchangeCode exchange = ExchangeCode.OSL_GLOBAL;
+
+        // Scan for cross-exchange arbitrage opportunities
+        try {
+            var opportunities = arbitrageService.scan(symbol);
+            if (!opportunities.isEmpty()) {
+                ArbitrageOpportunity best = opportunities.get(0);
+                env.put("arb_net_profit", best.getNetProfit().toPlainString());
+                env.put("arb_buy_exchange", best.getBuyExchange().name());
+                env.put("arb_sell_exchange", best.getSellExchange().name());
+                env.put("arb_executable", String.valueOf(best.isExecutable()));
+            }
+        } catch (Exception e) {
+            log.warn("[{}] Arbitrage scan failed", symbol, e);
+        }
 
         try {
             // Step 1: Cancel orders outside the order book range
@@ -117,9 +152,12 @@ public class OrderBookSyncStrategyImpl implements Strategy {
             log.error("[{}] OrderBookSyncStrategy execution failed", symbol, e);
             rc.recordFailure(symbol);
         }
+
+        // Log PnL summary periodically
+        pnlService.logSummary();
     }
 
-    /** Record mid-price for the VolatilityTracker. */
+    /** Record mid-price for the VolatilityTracker and update unrealized PnL. */
     private void recordMidPrice(String symbol, SymbolBo symbolBo) {
         try {
             OrderBook bybitBook = orderBookStore.get(ExchangeCode.BYBIT, symbolBo.getSymbolId());
@@ -128,6 +166,7 @@ public class OrderBookSyncStrategyImpl implements Strategy {
                     .add(bybitBook.getBestAskPrice())
                     .divide(BigDecimal.valueOf(2), 8, RoundingMode.HALF_UP);
             volatilityTracker.recordPrice(symbol, mid);
+            pnlService.updateUnrealizedPnl(symbol, mid);
         } catch (Exception e) {
             log.warn("[{}] Failed to record mid price for volatility", symbol, e);
         }
@@ -161,7 +200,7 @@ public class OrderBookSyncStrategyImpl implements Strategy {
                 .findFirst()
                 .ifPresent(countRisk -> {
                     try {
-                        int count = openOrdersStore.getRemoteOpenOrders(symbolBo).getOrders().size();
+                        int count = openOrdersStore.getCachedOpenOrders(ExchangeCode.OSL_GLOBAL, symbolBo.getSymbolId()).getOrders().size();
                         countRisk.setCurrentCount(count);
                     } catch (Exception e) {
                         log.warn("[{}] Failed to get open orders count for risk control", symbol, e);
@@ -189,18 +228,25 @@ public class OrderBookSyncStrategyImpl implements Strategy {
             );
             rc.addCheck(priceRisk);
 
-            // Max drawdown risk
+            // Max drawdown risk (portfolio-level, delegates to PortfolioRiskManager)
             MaxDrawdownRisk drawdownRisk = new MaxDrawdownRisk(
                     BigDecimal.valueOf(apolloConfig.getMaxDrawdownPercent()),
-                    orderBookStore,
-                    priceStore
+                    portfolioRiskManager
             );
             rc.addCheck(drawdownRisk);
 
-            log.info("[{}] Created RiskControl: maxOrders={}, priceDev={}%, drawdown={}%, cbThreshold={}, cbCooldown={}ms",
+            // Concentration risk (portfolio-level)
+            ConcentrationRisk concentrationRisk = new ConcentrationRisk(
+                    portfolioRiskManager,
+                    apolloConfig.getPortfolioConcentrationLimit()
+            );
+            rc.addCheck(concentrationRisk);
+
+            log.info("[{}] Created RiskControl: maxOrders={}, priceDev={}%, drawdown={}%, concentration={}%, cbThreshold={}, cbCooldown={}ms",
                     s, apolloConfig.getActiveOrderNumberLimit(),
                     apolloConfig.getPriceDeviationPercent(),
                     apolloConfig.getMaxDrawdownPercent(),
+                    apolloConfig.getPortfolioConcentrationLimit() * 100,
                     apolloConfig.getCircuitBreakerThreshold(),
                     apolloConfig.getCircuitBreakerCooldownMs());
 

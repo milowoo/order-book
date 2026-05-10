@@ -57,6 +57,11 @@ public class RandomForestModel implements MLModel {
         return trees.size();
     }
 
+    /** Get all trees (for serialization/inspection). */
+    public List<DecisionTree> getTrees() {
+        return trees;
+    }
+
     // ---- Serialization ----
 
     private static final ObjectMapper MAPPER = new ObjectMapper();

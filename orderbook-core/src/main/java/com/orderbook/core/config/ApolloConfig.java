@@ -82,4 +82,92 @@ public class ApolloConfig {
     public double getMaxDrawdownPercent() {
         return ConfigService.getAppConfig().getDoubleProperty("risk.max.drawdown.percent", 10.0);
     }
+
+    /** Rate limiter: max batch place requests per second. */
+    public double getPlaceRateLimit() {
+        return ConfigService.getAppConfig().getDoubleProperty("rate.limit.place.per.second", 10.0);
+    }
+
+    /** Rate limiter: max batch cancel requests per second. */
+    public double getCancelRateLimit() {
+        return ConfigService.getAppConfig().getDoubleProperty("rate.limit.cancel.per.second", 20.0);
+    }
+
+    // ---- Arbitrage config ----
+
+    /** Cross-exchange arbitrage master switch. */
+    public boolean getArbitrageEnabled() {
+        return ConfigService.getAppConfig().getBooleanProperty("arbitrage.enabled", true);
+    }
+
+    /** Minimum arbitrage profit in USDT to consider an opportunity executable. */
+    public double getArbitrageMinProfitUsdt() {
+        return ConfigService.getAppConfig().getDoubleProperty("arbitrage.minProfitUsdt", 0.5);
+    }
+
+    /** Maximum order quantity for arbitrage trades. */
+    public int getArbitrageMaxOrderQty() {
+        return ConfigService.getAppConfig().getIntProperty("arbitrage.maxOrderQty", 1);
+    }
+
+    // ---- Portfolio risk config ----
+
+    /** Maximum concentration per symbol (e.g. 0.30 = 30%). */
+    public double getPortfolioConcentrationLimit() {
+        return ConfigService.getAppConfig().getDoubleProperty("risk.portfolio.concentration.limit", 0.30);
+    }
+
+    /** Number of periods for VaR computation. */
+    public int getPortfolioVaRPeriods() {
+        return ConfigService.getAppConfig().getIntProperty("risk.portfolio.var.periods", 20);
+    }
+
+    /** Portfolio risk refresh interval in milliseconds. */
+    public long getPortfolioRefreshIntervalMs() {
+        return ConfigService.getAppConfig().getLongProperty("risk.portfolio.refresh.interval.ms", 5000L);
+    }
+
+    // ---- ML training config ----
+
+    /** Auto-training interval in hours. */
+    public int getMLAutoTrainIntervalHours() {
+        return ConfigService.getAppConfig().getIntProperty("ml.auto.train.interval.hours", 1);
+    }
+
+    /** Maximum training data samples per symbol. */
+    public int getMLTrainingDataMaxSamples() {
+        return ConfigService.getAppConfig().getIntProperty("ml.training.data.max.samples", 10000);
+    }
+
+    /** Label lookahead periods for training data. */
+    public int getMLLabelLookaheadPeriods() {
+        return ConfigService.getAppConfig().getIntProperty("ml.label.lookahead.periods", 5);
+    }
+
+    /** Feature capture interval in strategy ticks. */
+    public int getMLFeatureCaptureInterval() {
+        return ConfigService.getAppConfig().getIntProperty("ml.feature.capture.interval.ticks", 5);
+    }
+
+    // ---- SOR config ----
+
+    /** Smart Order Routing master switch. */
+    public boolean getSOREnabled() {
+        return ConfigService.getAppConfig().getBooleanProperty("sor.enabled", false);
+    }
+
+    /** SOR routing strategy. */
+    public String getSORStrategy() {
+        return ConfigService.getAppConfig().getProperty("sor.strategy", "lowest_fee");
+    }
+
+    /** SOR primary exchange. */
+    public String getSORPrimaryExchange() {
+        return ConfigService.getAppConfig().getProperty("sor.primary.exchange", "OSL_GLOBAL");
+    }
+
+    /** SOR fallback exchanges (comma-separated). */
+    public String getSORFallbackExchanges() {
+        return ConfigService.getAppConfig().getProperty("sor.fallback.exchanges", "");
+    }
 }

@@ -14,6 +14,7 @@ import com.orderbook.connector.stream.bitget.BitgetStreamingService;
 import com.orderbook.core.config.ExchangeConnectConfig;
 import com.orderbook.core.domain.*;
 import com.orderbook.core.exchange.disruptor.OrderBookDisruptor;
+import com.orderbook.core.service.PnlService;
 import com.orderbook.core.store.AccountStore;
 import com.orderbook.core.store.OpenOrdersStore;
 import com.orderbook.core.store.PriceStore;
@@ -23,6 +24,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.knowm.xchange.currency.CurrencyPair;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.PostConstruct;
@@ -30,6 +32,8 @@ import javax.annotation.PreDestroy;
 import java.math.BigDecimal;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -47,8 +51,18 @@ public class BitgetHandler {
     private PriceStore priceStore;
 
     private BitgetStreamingService publicStreamingService;
+    private BitgetStreamingExchange authExchange;
     private final Map<CurrencyPair, Disposable> orderBookObservableMap = new ConcurrentHashMap<>();
     private final List<Disposable> disposables = new ArrayList<>();
+
+    // Heartbeat tracking
+    private final AtomicLong lastMessageTime = new AtomicLong(System.currentTimeMillis());
+    private static final long HEARTBEAT_TIMEOUT_MS = 60_000L;
+
+    // PnL tracking
+    @Autowired
+    private PnlService pnlService;
+    private final ConcurrentMap<String, BigDecimal> lastDealQty = new ConcurrentHashMap<>();
 
     private static ExchangeCode getExchange() {
         return ExchangeCode.BITGET;
@@ -63,10 +77,17 @@ public class BitgetHandler {
     @PreDestroy
     public void onExit() {
         dispose();
+        if (authExchange != null) {
+            try { authExchange.disconnect(); } catch (Exception e) { /* ignore */ }
+        }
     }
 
     @PostConstruct
     public void init() {
+        connectAndSubscribe();
+    }
+
+    void connectAndSubscribe() {
         List<SymbolBo> symbolBos = symbolStore.getActiveSymbols();
         if (CollUtil.isEmpty(symbolBos)) {
             return;
@@ -78,7 +99,7 @@ public class BitgetHandler {
             return;
         }
 
-        BitgetStreamingExchange authExchange = (BitgetStreamingExchange) streamConnectorFactory.getExchange(getExchange(), true);
+        authExchange = (BitgetStreamingExchange) streamConnectorFactory.getExchange(getExchange(), true);
         if (!authExchange.isAlive()) {
             authExchange.connect().blockingAwait();
         }
@@ -120,9 +141,44 @@ public class BitgetHandler {
                     .subscribe(this::handlerAccount);
             disposables.add(accountSubscribe);
         });
+        lastMessageTime.set(System.currentTimeMillis());
+    }
+
+    /** Check connection health and reconnect if needed. */
+    @Scheduled(fixedDelay = 30_000)
+    public void checkConnection() {
+        boolean alive = authExchange == null || authExchange.isAlive();
+        long idle = System.currentTimeMillis() - lastMessageTime.get();
+        if (!alive || idle > HEARTBEAT_TIMEOUT_MS) {
+            log.warn("[Bitget] Connection unhealthy: alive={}, idle={}ms", alive, idle);
+            reconnect();
+        }
+    }
+
+    private synchronized void reconnect() {
+        log.warn("[Bitget] Reconnecting...");
+        dispose();
+        if (authExchange != null) {
+            try { authExchange.disconnect(); } catch (Exception e) { /* ignore */ }
+        }
+        orderBookObservableMap.clear();
+        authExchange = null;
+        publicStreamingService = null;
+        lastDealQty.clear();
+        connectAndSubscribe();
+        lastMessageTime.set(System.currentTimeMillis());
+        log.warn("[Bitget] Reconnect complete");
+    }
+
+    /**
+     * Check if the exchange connection is healthy.
+     */
+    public boolean isConnectionHealthy() {
+        return authExchange != null && authExchange.isAlive();
     }
 
     public void handlerOrderBook(BitgetWsOrderBookSnapshotNotification notification) {
+        lastMessageTime.set(System.currentTimeMillis());
         try {
             if (Objects.isNull(notification)
                     || Objects.isNull(notification.getChannel())
@@ -159,6 +215,7 @@ public class BitgetHandler {
     }
 
     public void handlerTicker(BitgetTickerNotification ticker) {
+        lastMessageTime.set(System.currentTimeMillis());
         try {
             if (Objects.isNull(ticker) || CollUtil.isEmpty(ticker.getPayloadItems())) {
                 return;
@@ -176,6 +233,7 @@ public class BitgetHandler {
     }
 
     public void handlerOrder(BitgetOrderNotification orderNotification) {
+        lastMessageTime.set(System.currentTimeMillis());
         try {
             if (Objects.isNull(orderNotification) || CollUtil.isEmpty(orderNotification.getPayloadItems())) {
                 return;
@@ -206,6 +264,21 @@ public class BitgetHandler {
                 orderBo.setRemainingQty(orderBo.getQuantity().subtract(orderBo.getDealQuantity()));
                 orderBo.setRemainingAmount(orderBo.getAmount().subtract(orderBo.getDealAmount()));
                 openOrdersBo.updateOpenOrder(orderBo);
+
+                // Track fills for PnL
+                BigDecimal dealQty = orderBo.getDealQuantity();
+                BigDecimal lastQty = lastDealQty.getOrDefault(orderBo.getClientOrderId(), BigDecimal.ZERO);
+                if (dealQty.compareTo(lastQty) > 0) {
+                    BigDecimal newFillQty = dealQty.subtract(lastQty);
+                    lastDealQty.put(orderBo.getClientOrderId(), dealQty);
+                    BigDecimal fee = item.getFillFeeCoin() != null && item.getFillFee() != null
+                            ? new BigDecimal(item.getFillFee())
+                            : BigDecimal.ZERO;
+                    pnlService.recordFill(symbolBo.getSymbolId(), orderBo.getSide(),
+                            orderBo.getDealPriceAvg() != null ? orderBo.getDealPriceAvg() : orderBo.getPrice(),
+                            newFillQty, fee, getExchange().name(),
+                            orderBo.getClientOrderId() + "-" + System.currentTimeMillis());
+                }
             });
         } catch (Exception e) {
             log.error("BitgetHandler order notification message:{} error:{}", orderNotification, e.getMessage());
@@ -213,6 +286,7 @@ public class BitgetHandler {
     }
 
     public void handlerAccount(BitgetAccountNotification accountNotification) {
+        lastMessageTime.set(System.currentTimeMillis());
         try {
             if (Objects.isNull(accountNotification) || CollUtil.isEmpty(accountNotification.getPayloadItems())) {
                 return;

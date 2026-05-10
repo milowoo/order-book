@@ -23,7 +23,7 @@ public class OrderBookDisruptor {
 
     @PostConstruct
     public void init() {
-        disruptor = new Disruptor<>(OrderBook::new, 1024, DaemonThreadFactory.INSTANCE);
+        disruptor = new Disruptor<>(OrderBook::new, 8192, DaemonThreadFactory.INSTANCE);
         AbstractSymbolOrderBooks[] handlers = orderBookStore.getHandler().toArray(new AbstractSymbolOrderBooks[0]);
         disruptor.handleEventsWith(handlers);
         disruptor.start();

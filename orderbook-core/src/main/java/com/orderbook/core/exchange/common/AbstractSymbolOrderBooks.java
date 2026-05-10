@@ -115,15 +115,17 @@ public abstract class AbstractSymbolOrderBooks implements EventHandler<OrderBook
                 .symbol(symbol());
         synchronized (platform()) {
             if (CollUtil.isNotEmpty(ask)) {
-                List<PriceLevel> askList = ask.entrySet().stream()
-                        .map(entry -> new PriceLevel(entry.getKey(), entry.getValue()))
-                        .collect(Collectors.toList());
+                List<PriceLevel> askList = new ArrayList<>(ask.size());
+                for (Map.Entry<BigDecimal, BigDecimal> entry : ask.entrySet()) {
+                    askList.add(new PriceLevel(entry.getKey(), entry.getValue()));
+                }
                 orderBookBuilder.ask(askList);
             }
             if (CollUtil.isNotEmpty(bid)) {
-                List<PriceLevel> bidList = bid.entrySet().stream()
-                        .map(entry -> new PriceLevel(entry.getKey(), entry.getValue()))
-                        .collect(Collectors.toList());
+                List<PriceLevel> bidList = new ArrayList<>(bid.size());
+                for (Map.Entry<BigDecimal, BigDecimal> entry : bid.entrySet()) {
+                    bidList.add(new PriceLevel(entry.getKey(), entry.getValue()));
+                }
                 orderBookBuilder.bid(bidList);
             }
         }

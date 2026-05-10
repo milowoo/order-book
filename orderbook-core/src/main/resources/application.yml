@@ -7,5 +7,18 @@ spring:
 app:
   id: orderbook-maker
 
-
-
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus,info
+      base-path: /actuator
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    tags:
+      application: orderbook-maker
+  endpoint:
+    health:
+      show-details: always

@@ -10,6 +10,8 @@ import com.orderbook.core.config.ExchangeConnectConfig;
 import com.orderbook.core.domain.SymbolBo;
 import com.orderbook.core.exchange.disruptor.OrderBookDisruptor;
 import com.orderbook.core.domain.*;
+import com.orderbook.core.service.PnlService;
+import com.orderbook.core.service.FeeService;
 import com.orderbook.core.store.AccountStore;
 import com.orderbook.core.store.OpenOrdersStore;
 import com.orderbook.core.store.PriceStore;
@@ -35,6 +37,9 @@ import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
 import java.math.BigDecimal;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -53,6 +58,8 @@ public class BinanceHandler {
     SymbolStore symbolStore;
     @Autowired
     PriceStore priceStore;
+    @Autowired
+    private FeeService feeService;
 
     BinanceStreamingExchange pubExchange = null;
     BinanceStreamingExchange priExchange = null;
@@ -60,12 +67,25 @@ public class BinanceHandler {
     private Set<String> subscribeSymbolPub = new HashSet<>();
     private Set<String> subscribeSymbolPri = new HashSet<>();
 
+    // Heartbeat tracking
+    private final AtomicLong lastMessageTime = new AtomicLong(System.currentTimeMillis());
+    private static final long HEARTBEAT_TIMEOUT_MS = 60_000L;
+
+    // PnL tracking
+    @Autowired
+    private PnlService pnlService;
+    private final ConcurrentMap<String, BigDecimal> lastDealQty = new ConcurrentHashMap<>();
+
     private static ExchangeCode getExchange() {
         return ExchangeCode.BINANCE;
     }
 
     @PostConstruct
     public void init() {
+        connectAndSubscribe();
+    }
+
+    void connectAndSubscribe() {
         log.info("BinanceHandler init begin");
         List<SymbolBo> symbolBos = symbolStore.getActiveSymbols();
         if (CollUtil.isEmpty(symbolBos)) {
@@ -90,7 +110,42 @@ public class BinanceHandler {
             log.error("Failed to initialize Binance handler", e);
             throw e;
         }
+        lastMessageTime.set(System.currentTimeMillis());
         log.info("BinanceHandler init end");
+    }
+
+    /** Check connection health and reconnect if needed. */
+    @Scheduled(fixedDelay = 30_000)
+    public void checkConnection() {
+        boolean pubAlive = pubExchange == null || pubExchange.isAlive();
+        boolean priAlive = priExchange == null || priExchange.isAlive();
+        long idle = System.currentTimeMillis() - lastMessageTime.get();
+        if (!pubAlive || !priAlive || idle > HEARTBEAT_TIMEOUT_MS) {
+            log.warn("[Binance] Connection unhealthy: pubAlive={}, priAlive={}, idle={}ms", pubAlive, priAlive, idle);
+            reconnect();
+        }
+    }
+
+    private synchronized void reconnect() {
+        log.warn("[Binance] Reconnecting...");
+        dispose();
+        if (pubExchange != null) { try { pubExchange.disconnect(); } catch (Exception e) { /* ignore */ } }
+        if (priExchange != null) { try { priExchange.disconnect(); } catch (Exception e) { /* ignore */ } }
+        pubExchange = null;
+        priExchange = null;
+        lastDealQty.clear();
+        connectAndSubscribe();
+        lastMessageTime.set(System.currentTimeMillis());
+        log.warn("[Binance] Reconnect complete");
+    }
+
+    /**
+     * Check if the exchange connection is healthy.
+     */
+    public boolean isConnectionHealthy() {
+        boolean pubAlive = pubExchange == null || pubExchange.isAlive();
+        boolean priAlive = priExchange == null || priExchange.isAlive();
+        return pubAlive && priAlive;
     }
 
     private void setupPriExchangeConnection(List<SymbolBo> symbolBos) {
@@ -133,14 +188,33 @@ public class BinanceHandler {
     }
 
     private void handlerOrder(Order order) {
-        log.info("BinanceHandler order subscribe order {}", order);
+        lastMessageTime.set(System.currentTimeMillis());
+        log.debug("BinanceHandler order subscribe order {}", order);
         String symbol = order.getInstrument().toString();
         OpenOrdersBo openOrdersBo = openOrdersStore.getOpenOrders(getExchange(), symbol);
         if (openOrdersBo == null) {
             return;
         }
-        log.info("BinanceHandler symbol {} order {}", symbol, order);
-        openOrdersBo.updateOpenOrder(convertOrder((LimitOrder) order));
+        OrderBo orderBo = convertOrder((LimitOrder) order);
+        openOrdersBo.updateOpenOrder(orderBo);
+
+        // Track fills for PnL
+        BigDecimal dealQty = orderBo.getDealQuantity();
+        BigDecimal lastQty = lastDealQty.getOrDefault(orderBo.getClientOrderId(), BigDecimal.ZERO);
+        if (dealQty != null && dealQty.compareTo(lastQty) > 0) {
+            BigDecimal newFillQty = dealQty.subtract(lastQty);
+            lastDealQty.put(orderBo.getClientOrderId(), dealQty);
+            // Use Order.fee if available, otherwise estimate from fee_config
+            BigDecimal fee = order.getFee() != null ? order.getFee() : BigDecimal.ZERO;
+            if (fee.compareTo(BigDecimal.ZERO) == 0 && orderBo.getDealPriceAvg() != null) {
+                BigDecimal notional = orderBo.getDealPriceAvg().multiply(newFillQty);
+                fee = feeService.estimateFee(getExchange(), symbol, notional);
+            }
+            pnlService.recordFill(symbol, orderBo.getSide(),
+                    orderBo.getDealPriceAvg() != null ? orderBo.getDealPriceAvg() : orderBo.getPrice(),
+                    newFillQty, fee, getExchange().name(),
+                    orderBo.getClientOrderId() + "-" + System.currentTimeMillis());
+        }
     }
 
     private OrderBo convertOrder(LimitOrder order) {
@@ -151,7 +225,9 @@ public class BinanceHandler {
                 .findFirst()
                 .orElse(null);
         orderBo.setClientOrderId(clientOrderId);
-        orderBo.setOrderId(Long.parseLong(order.getId()));
+        if (order.getId() != null) {
+            orderBo.setOrderId(Long.parseLong(order.getId()));
+        }
         orderBo.setOrderStatus(order.getStatus().name());
 
         if ("bid".equalsIgnoreCase(order.getType().name()) || "EXIT_BID".equalsIgnoreCase(order.getType().name())) {
@@ -165,8 +241,20 @@ public class BinanceHandler {
         orderBo.setQuantity(order.getOriginalAmount());
         orderBo.setAmount(order.getOriginalAmount());
         orderBo.setRemainingQty(order.getRemainingAmount() == null ? order.getOriginalAmount() : order.getRemainingAmount());
-        orderBo.setCreateTime(order.getTimestamp().getTime());
+        orderBo.setRemainingAmount(order.getRemainingAmount());
 
+        // Populate deal fields from cumulative executed values
+        if (order.getCumulativeAmount() != null) {
+            orderBo.setDealQuantity(order.getCumulativeAmount());
+        }
+        if (order.getAveragePrice() != null) {
+            orderBo.setDealPriceAvg(order.getAveragePrice());
+        }
+        if (order.getCumulativeAmount() != null && order.getAveragePrice() != null) {
+            orderBo.setDealAmount(order.getCumulativeAmount().multiply(order.getAveragePrice()));
+        }
+
+        orderBo.setCreateTime(order.getTimestamp() != null ? order.getTimestamp().getTime() : System.currentTimeMillis());
         return orderBo;
     }
 
@@ -224,9 +312,12 @@ public class BinanceHandler {
     @PreDestroy
     public void onExit() {
         dispose();
+        if (pubExchange != null) { try { pubExchange.disconnect(); } catch (Exception e) { /* ignore */ } }
+        if (priExchange != null) { try { priExchange.disconnect(); } catch (Exception e) { /* ignore */ } }
     }
 
     public void handlerOrderBook(OrderBook orderBook) {
+        lastMessageTime.set(System.currentTimeMillis());
         if (Objects.isNull(orderBook) || (orderBook.getAsks().isEmpty() && orderBook.getBids().isEmpty())) {
             return;
         }
@@ -254,6 +345,7 @@ public class BinanceHandler {
     }
 
     private void handlerTicker(Ticker ticker) {
+        lastMessageTime.set(System.currentTimeMillis());
         if (Objects.isNull(ticker)) {
             return;
         }
@@ -263,6 +355,7 @@ public class BinanceHandler {
     }
 
     private void handlerBalance(Balance balance) {
+        lastMessageTime.set(System.currentTimeMillis());
         if (Objects.isNull(balance)) {
             return;
         }

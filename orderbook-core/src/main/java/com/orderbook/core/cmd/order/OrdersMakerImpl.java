@@ -6,6 +6,8 @@ import com.orderbook.cmd.order.OrdersMaker;
 import com.orderbook.connector.common.dto.*;
 import com.orderbook.core.annotation.Command;
 import com.orderbook.core.domain.*;
+import com.orderbook.core.service.FeeService;
+import com.orderbook.core.sor.SOREngine;
 import com.orderbook.core.store.OpenOrdersStore;
 import com.orderbook.core.store.OrderBookStore;
 import com.orderbook.core.strategy.spread.SpreadCalculator;
@@ -33,6 +35,14 @@ public class OrdersMakerImpl extends AbstractOrdersCmd implements OrdersMaker {
     private OpenOrdersStore openOrdersStore;
     @Autowired
     private SpreadCalculatorFactory spreadCalculatorFactory;
+    @Autowired
+    private FeeService feeService;
+    @Autowired
+    private SOREngine sorEngine;
+
+    // Arbitrage signal from strategy: factor [0,1] to tighten spread
+    // Set via env in call(), consumed in adjustOrderBook()
+    private volatile BigDecimal arbitrageTightenFactor = BigDecimal.ONE;
 
     @Override
     public Boolean call(Map<String, Object> env, ExchangeCode exchangeCode, String symbol) {
@@ -40,6 +50,9 @@ public class OrdersMakerImpl extends AbstractOrdersCmd implements OrdersMaker {
         try {
             SymbolBo symbolBo = symbolStore.findSymbolById(symbol);
             if (symbolBo == null) return false;
+
+            // Read arbitrage signal from env (if any)
+            updateArbitrageSignal(env);
 
             OrderBook bybitOrderBook = orderBookStore.get(ExchangeCode.BYBIT, symbolBo.getSymbolId());
             if (!isValidOrderBook(bybitOrderBook)) return false;
@@ -50,8 +63,11 @@ public class OrdersMakerImpl extends AbstractOrdersCmd implements OrdersMaker {
             OrderBook orderBook = orderBookStore.get(exchangeCode, symbolBo.getSymbolId());
             if (orderBook == null) return false;
 
-            // 获取用户的活跃订单
-            OpenOrdersBo openOrdersBo = openOrdersStore.getRemoteOpenOrders(symbolBo);
+            // Resolve target exchange via SOR (if enabled)
+            ExchangeCode targetExchange = resolveExchange(symbolBo, exchangeCode);
+
+            // 获取用户的活跃订单（从本地缓存读取，避免每 tick 的 REST 调用）
+            OpenOrdersBo openOrdersBo = openOrdersStore.getCachedOpenOrders(exchangeCode, symbolBo.getSymbolId());
             // 拷贝一份副本，防止并发修改
             Map<Long, OrderBo> orderBoMap = new HashMap<>(openOrdersBo.getOrders());
 
@@ -64,9 +80,9 @@ public class OrdersMakerImpl extends AbstractOrdersCmd implements OrdersMaker {
             if (isFirstOrderPlacement(orderBook)) {
                 // Bybit有、本地无 → 补单 -- 首次铺单
                 adjustQuantities(bybitOrderBook.getAsk(), symbolBo);
-                batchPlaceOrder(getExchange(), symbolBo, "sell", convertSpotOrders(bybitOrderBook.getAsk(), symbolBo, "sell"));
+                batchPlaceOrder(targetExchange, symbolBo, "sell", convertSpotOrders(bybitOrderBook.getAsk(), symbolBo, "sell"));
                 adjustQuantities(bybitOrderBook.getBid(), symbolBo);
-                batchPlaceOrder(getExchange(), symbolBo, "buy", convertSpotOrders(bybitOrderBook.getBid(), symbolBo, "buy"));
+                batchPlaceOrder(targetExchange, symbolBo, "buy", convertSpotOrders(bybitOrderBook.getBid(), symbolBo, "buy"));
                 return true;
             }
 
@@ -78,7 +94,7 @@ public class OrdersMakerImpl extends AbstractOrdersCmd implements OrdersMaker {
 
             // Bybit有、本地无 → 补单
             long processOnlyInBybitTime = System.currentTimeMillis();
-            processOnlyInBybit(bybitOrderBook, orderBook, symbolBo);
+            processOnlyInBybit(bybitOrderBook, orderBook, symbolBo, targetExchange);
             log.info("processOnlyInBybit use time {}", System.currentTimeMillis() - processOnlyInBybitTime);
 
             long processOrdersSellTime = System.currentTimeMillis();
@@ -88,10 +104,11 @@ public class OrdersMakerImpl extends AbstractOrdersCmd implements OrdersMaker {
                     bybitOrderBook.getAsk(),
                     symbolBo,
                     orderBoMap,
-                    "sell"
+                    "sell",
+                    targetExchange
             );
             // 先下单，再撤单，保证盘口不会清空的场景
-            batchCancelOrder(getExchange(), symbolBo, askCancelOrders, orderBoMap);
+            batchCancelOrder(targetExchange, symbolBo, askCancelOrders, orderBoMap);
             log.info("processOrdersSellTime use time {}", System.currentTimeMillis() - processOrdersSellTime);
 
             long processOrdersBuyTime = System.currentTimeMillis();
@@ -100,9 +117,10 @@ public class OrdersMakerImpl extends AbstractOrdersCmd implements OrdersMaker {
                     bybitOrderBook.getBid(),
                     symbolBo,
                     orderBoMap,
-                    "buy"
+                    "buy",
+                    targetExchange
             );
-            batchCancelOrder(getExchange(), symbolBo, bidCancelOrders, orderBoMap);
+            batchCancelOrder(targetExchange, symbolBo, bidCancelOrders, orderBoMap);
             log.info("processOrdersBuyTime use time {}", System.currentTimeMillis() - processOrdersBuyTime);
 
             return true;
@@ -153,6 +171,31 @@ public class OrdersMakerImpl extends AbstractOrdersCmd implements OrdersMaker {
         BigDecimal askOffset = calculator.calculateOffset(symbolBo.getSymbol(), false, symbolBo);
         BigDecimal bidOffset = calculator.calculateOffset(symbolBo.getSymbol(), true, symbolBo);
 
+        // Clamp offsets to break-even spread (minimum spread to cover taker fees)
+        BigDecimal refPrice = getReferencePrice(orderBook);
+        if (refPrice.compareTo(BigDecimal.ZERO) > 0) {
+            BigDecimal breakEvenSpread = feeService.calculateBreakEvenSpread(
+                    ExchangeCode.BYBIT, symbolBo.getSymbol(), refPrice);
+            BigDecimal minHalfSpread = breakEvenSpread.divide(BigDecimal.valueOf(2), 8, RoundingMode.HALF_UP);
+            if (askOffset.compareTo(minHalfSpread) < 0) {
+                askOffset = minHalfSpread;
+            }
+            if (bidOffset.compareTo(minHalfSpread) < 0) {
+                bidOffset = minHalfSpread;
+            }
+        }
+
+        // Apply arbitrage tighten factor (tighten spread to capture cross-exchange profit)
+        BigDecimal factor = this.arbitrageTightenFactor;
+        if (factor.compareTo(BigDecimal.ONE) < 0) {
+            askOffset = askOffset.multiply(factor);
+            bidOffset = bidOffset.multiply(factor);
+            if (log.isDebugEnabled()) {
+                log.debug("[{}] Arbitrage tighten factor={} -> askOffset={} bidOffset={}",
+                        symbolBo.getSymbol(), factor, askOffset, bidOffset);
+            }
+        }
+
         if (log.isDebugEnabled()) {
             log.debug("[{}] Spread '{}' askOffset={} bidOffset={}",
                     symbolBo.getSymbol(), calculator.getName(), askOffset, bidOffset);
@@ -185,7 +228,7 @@ public class OrdersMakerImpl extends AbstractOrdersCmd implements OrdersMaker {
     }
 
     // 处理bybit订单簿有，本地没有 → 铺单
-    private void processOnlyInBybit(OrderBook bybitOrderBook, OrderBook orderBook, SymbolBo symbolBo) {
+    private void processOnlyInBybit(OrderBook bybitOrderBook, OrderBook orderBook, SymbolBo symbolBo, ExchangeCode exchange) {
         List<PriceLevel> askLevels = findOnlyInBybit(
                 symbolBo,
                 bybitOrderBook.getAsk(),
@@ -201,8 +244,8 @@ public class OrdersMakerImpl extends AbstractOrdersCmd implements OrdersMaker {
         adjustQuantities(askLevels, symbolBo);
         adjustQuantities(bidLevels, symbolBo);
 
-        batchPlaceOrder(getExchange(), symbolBo, "sell", convertSpotOrders(askLevels, symbolBo, "sell"));
-        batchPlaceOrder(getExchange(), symbolBo, "buy", convertSpotOrders(bidLevels, symbolBo, "buy"));
+        batchPlaceOrder(exchange, symbolBo, "sell", convertSpotOrders(askLevels, symbolBo, "sell"));
+        batchPlaceOrder(exchange, symbolBo, "buy", convertSpotOrders(bidLevels, symbolBo, "buy"));
     }
 
     /**
@@ -253,19 +296,21 @@ public class OrdersMakerImpl extends AbstractOrdersCmd implements OrdersMaker {
         }
 
         BigDecimal tickSize = symbolBo.getTickSize();
-        int scale = tickSize.scale(); // 根据tickSize的精度确定保留几位小数
+        int scale = tickSize.scale();
         // 将本地价格格式化为统一精度的字符串集合
-        Set<String> oslPriceStr = oslLevels.stream()
-                .map(priceLevel -> priceLevel.getPrice().setScale(scale, RoundingMode.HALF_UP).toPlainString())
-                .collect(Collectors.toSet());
+        Set<String> oslPriceStr = new HashSet<>(oslLevels.size());
+        for (PriceLevel level : oslLevels) {
+            oslPriceStr.add(level.getPrice().setScale(scale, RoundingMode.HALF_UP).toPlainString());
+        }
 
         // 过滤出 bybit 中本地没有的价格档
-        List<PriceLevel> result = bybitLevels.stream()
-                .filter(priceLevel -> {
-                    String formattedPrice = priceLevel.getPrice().setScale(scale, RoundingMode.HALF_UP).toPlainString();
-                    return !oslPriceStr.contains(formattedPrice);
-                })
-                .collect(Collectors.toList());
+        List<PriceLevel> result = new ArrayList<>();
+        for (PriceLevel level : bybitLevels) {
+            String formattedPrice = level.getPrice().setScale(scale, RoundingMode.HALF_UP).toPlainString();
+            if (!oslPriceStr.contains(formattedPrice)) {
+                result.add(level);
+            }
+        }
         return result;
     }
 
@@ -297,18 +342,21 @@ public class OrdersMakerImpl extends AbstractOrdersCmd implements OrdersMaker {
             return Collections.emptyList();
         }
         BigDecimal tickSize = symbolBo.getTickSize();
-        int scale = tickSize.scale(); // 根据tickSize的精度确定保留几位小数
+        int scale = tickSize.scale();
         // 使用字符串集合避免 BigDecimal 精度对比问题
-        Set<String> bybitPriceStr = bybitLevels.stream()
-                .map(priceLevel -> priceLevel.getPrice().setScale(scale, RoundingMode.HALF_UP).toPlainString())
-                .collect(Collectors.toSet());
+        Set<String> bybitPriceStr = new HashSet<>(bybitLevels.size());
+        for (PriceLevel level : bybitLevels) {
+            bybitPriceStr.add(level.getPrice().setScale(scale, RoundingMode.HALF_UP).toPlainString());
+        }
 
-        return oslLevels.stream()
-                .filter(priceLevel -> {
-                    String formattedPrice = priceLevel.getPrice().setScale(scale, RoundingMode.HALF_UP).toPlainString();
-                    return !bybitPriceStr.contains(formattedPrice);
-                })
-                .collect(Collectors.toList());
+        List<PriceLevel> result = new ArrayList<>();
+        for (PriceLevel level : oslLevels) {
+            String formattedPrice = level.getPrice().setScale(scale, RoundingMode.HALF_UP).toPlainString();
+            if (!bybitPriceStr.contains(formattedPrice)) {
+                result.add(level);
+            }
+        }
+        return result;
     }
 
     /**
@@ -320,7 +368,7 @@ public class OrdersMakerImpl extends AbstractOrdersCmd implements OrdersMaker {
      * @param orderBoMap  本地挂单缓存
      * @param side        买卖方向: "buy" 或 "sell"
      */
-    private void processOrders(List<PriceLevel> oslLevels, List<PriceLevel> bybitLevels, SymbolBo symbolBo, Map<Long, OrderBo> orderBoMap, String side) {
+    private void processOrders(List<PriceLevel> oslLevels, List<PriceLevel> bybitLevels, SymbolBo symbolBo, Map<Long, OrderBo> orderBoMap, String side, ExchangeCode exchange) {
         if (symbolBo == null || symbolBo.getTickSize() == null) {
             return;
         }
@@ -363,7 +411,7 @@ public class OrdersMakerImpl extends AbstractOrdersCmd implements OrdersMaker {
         }
 
         // 批量撤单
-        batchCancelOrder(getExchange(), symbolBo, ordersToCancel, orderBoMap);
+        batchCancelOrder(exchange, symbolBo, ordersToCancel, orderBoMap);
 
         List<PriceLevel> orders = new ArrayList<>();
         for (Map.Entry<BigDecimal, BigDecimal> entry : compensationPrices.entrySet()) {
@@ -388,7 +436,58 @@ public class OrdersMakerImpl extends AbstractOrdersCmd implements OrdersMaker {
         }
 
         List<SpotOrdersV2Req> allList = convertSpotOrders(orders, side);
-        batchPlaceOrder(getExchange(), symbolBo, side, allList);
+        batchPlaceOrder(exchange, symbolBo, side, allList);
+    }
+
+    /**
+     * Resolve target exchange for order placement using SOR if enabled.
+     */
+    private ExchangeCode resolveExchange(SymbolBo symbolBo, ExchangeCode defaultExchange) {
+        if (apolloConfig.getSOREnabled()) {
+            return sorEngine.selectExchange(symbolBo.getSymbolId(), null, null, null);
+        }
+        return defaultExchange;
+    }
+
+    /**
+     * Read arbitrage signals from env and set the tighten factor.
+     * Called at the start of each call().
+     */
+    private void updateArbitrageSignal(Map<String, Object> env) {
+        // Reset to default (no tightening)
+        this.arbitrageTightenFactor = BigDecimal.ONE;
+
+        try {
+            if (env == null || !env.containsKey("arb_net_profit")) return;
+            if (!"true".equals(env.get("arb_executable"))) return;
+
+            BigDecimal netProfit = new BigDecimal(env.get("arb_net_profit").toString());
+            if (netProfit.compareTo(BigDecimal.ZERO) <= 0) return;
+
+            // Tighten spread proportionally to the arbitrage profit
+            // Higher profit = tighter spread (factor closer to 0)
+            // Cap at 50% tightening (factor >= 0.5)
+            double tighten = Math.max(0.5, 1.0 - netProfit.doubleValue() * 0.01);
+            this.arbitrageTightenFactor = BigDecimal.valueOf(tighten);
+
+            log.info("[Arbitrage] Signal profit={}, tighten factor={}", netProfit, this.arbitrageTightenFactor);
+        } catch (Exception e) {
+            log.warn("[Arbitrage] Failed to parse signal", e);
+            this.arbitrageTightenFactor = BigDecimal.ONE;
+        }
+    }
+
+    /**
+     * Get reference price from order book mid-price.
+     */
+    private BigDecimal getReferencePrice(OrderBook orderBook) {
+        if (orderBook == null || orderBook.getBid() == null || orderBook.getAsk() == null
+                || orderBook.getBid().isEmpty() || orderBook.getAsk().isEmpty()) {
+            return BigDecimal.ZERO;
+        }
+        return orderBook.getBestBidPrice()
+                .add(orderBook.getBestAskPrice())
+                .divide(BigDecimal.valueOf(2), 8, RoundingMode.HALF_UP);
     }
 
     /**

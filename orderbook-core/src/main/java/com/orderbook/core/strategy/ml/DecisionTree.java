@@ -33,6 +33,11 @@ public class DecisionTree {
         return node.leafValue;
     }
 
+    /** Get the root node (used by serializers and model inspection). */
+    public Node getRoot() {
+        return root;
+    }
+
     /** Number of nodes in this tree. */
     public int size() {
         if (root == null) return 0;

@@ -123,6 +123,14 @@ public class OpenOrdersStore {
         setOpenOrders(exchangeCode, symbol, openOrdersBo);
     }
 
+    /**
+     * Returns open orders from in-memory cache without a REST call.
+     * The cache is refreshed every 12 minutes by reloadOpenOrders().
+     */
+    public OpenOrdersBo getCachedOpenOrders(ExchangeCode exchangeCode, String symbolId) {
+        return getOpenOrders(exchangeCode, symbolId);
+    }
+
     public OpenOrdersBo getRemoteOpenOrders(SymbolBo symbol) {
         try {
             ExchangeCode exchangeCode = getExchange();

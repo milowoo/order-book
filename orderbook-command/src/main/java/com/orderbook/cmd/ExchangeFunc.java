@@ -23,13 +23,11 @@ public enum ExchangeFunc {
 
     //order
     PLACE_ORDER("place_order"),
-    KLINE_CANCEL_ORDER("kline_cancel_order"),
     CANCEL_ORDER("cancel_order"),
     CANCEL_ORDER_BETWEEN("cancel_order_between"),
     CANCEL_ORDER_BOOK_OUT_ORDER("cancel_order_book_out_order"),
     CANCEL_ORDER_BY_SIDE("cancel_order_by_side"),
     ORDERS_MAKER("orders_maker"),
-    KLINE_MAKER("kline_maker"),
 
     //order book
     NOTIONAL_RANGE("notional_range"),

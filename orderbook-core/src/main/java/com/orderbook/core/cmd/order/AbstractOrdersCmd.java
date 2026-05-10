@@ -11,6 +11,7 @@ import com.orderbook.core.domain.OrderBo;
 import com.orderbook.core.domain.PriceLevel;
 import com.orderbook.core.domain.SymbolBo;
 import com.orderbook.core.store.OpenOrdersStore;
+import com.orderbook.core.util.RateLimiterManager;
 import com.orderbook.core.utils.IdGenerator;
 import lombok.extern.slf4j.Slf4j;
 import org.knowm.xchange.service.trade.params.CancelOrderParams;
@@ -30,6 +31,9 @@ public abstract class AbstractOrdersCmd extends BaseCmd {
 
     @Autowired
     protected OpenOrdersStore openOrdersStore;
+
+    @Autowired
+    protected RateLimiterManager rateLimiterManager;
 
     // 定义为类成员：单线程执行器，保证异步串行执行
     final SerialExecutorManager serialExecutorManager = new SerialExecutorManager();
@@ -94,14 +98,13 @@ public abstract class AbstractOrdersCmd extends BaseCmd {
                     request.setSymbol(symbolBo.getSymbol());
                     request.setOrderList(list);
 
+                    rateLimiterManager.acquireCancel();
                     SpotOrderBatchResult result = tradeService.cancelBatchOrder(request);
 
                     // 清理内存
                     for (SpotOrderResult orderResult : result.getSuccessList()) {
                         orderBoMap.remove(Long.parseLong(orderResult.getOrderId()));
                     }
-
-                    Thread.sleep(apolloConfig.getPlaceSleepTime());
                 } catch (Exception e) {
                     log.error("batch {}: batchCancelOrder exception, symbol={}, batch={}", batchIndex, symbolBo.getSymbol(), batch, e);
                 }
@@ -136,17 +139,11 @@ public abstract class AbstractOrdersCmd extends BaseCmd {
                     request.setSymbol(symbolBo.getSymbol());
                     request.setOrderList(list);
 
+                    rateLimiterManager.acquireCancel();
                     SpotOrderBatchResult result = tradeService.cancelBatchOrder(request);
 
                     if (apolloConfig.isMMLogSwitch(symbolBo.getSymbol())) {
                         log.info("batch {}: batchCancelOrder result: {}", batchIndex, result);
-                    }
-
-                    try {
-                        Thread.sleep(apolloConfig.getPlaceSleepTime());
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt(); // good practice
-                        log.warn("batch {}: sleep interrupted.", batchIndex);
                     }
                 } catch (Exception e) {
                     log.error("batch {}: batchCancelOrder exception, symbol={}, batch={}", batchIndex, symbolBo.getSymbol(), batch, e);
@@ -209,10 +206,10 @@ public abstract class AbstractOrdersCmd extends BaseCmd {
                     subRequest.setChannelApiCode("X-CHANNEL-API-CODE");
                     subRequest.setOrderList(batch);
 
+                    rateLimiterManager.acquirePlace();
                     long beginTime = System.currentTimeMillis();
                     tradeService.placeBatchOrder(subRequest);
                     log.info("batch {}: batchPlaceOrder end, use time: {} ms", batchIndex, System.currentTimeMillis() - beginTime);
-                    Thread.sleep(apolloConfig.getPlaceSleepTime());
                 } catch (Exception e) {
                     log.error("batch {}: batchPlaceOrder failed, symbol={}, batch={}", batchIndex, symbolBo.getSymbol(), batch, e);
                 }
