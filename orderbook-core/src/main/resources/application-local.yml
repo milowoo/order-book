@@ -1,0 +1,91 @@
+# Local development configuration - overrides application.yml defaults
+# Activate with: --spring.profiles.active=local
+
+spring:
+  redis:
+    cluster:
+      nodes: localhost:6379
+      max-redirects: 3
+    timeout: 10000
+    ssl: false
+    lettuce:
+      pool:
+        max-active: 16
+        max-idle: 4
+        min-idle: 4
+        max-wait: 3000
+
+# For local dev: disable Eureka since there's no local Eureka server
+# In production, override via application-prod.yml or Apollo
+eureka:
+  client:
+    enabled: false
+
+# Exchange config defaults for local development (streams disabled)
+# Override in Apollo or profile-specific config for production
+connect:
+  exchange:
+    OSL_GLOBAL:
+      api_key: ""
+      secret_key: ""
+      stream_public_use: false
+      stream_private_use: false
+
+# Test symbol data for local development
+# Override in Apollo or profile-specific config for production
+# Spread calculation configuration
+strategy:
+  spread:
+    symbols:
+      BTCUSDT:
+        model: hybrid
+        baseOffsetTicks: 1.0
+        targetPosition: 0.0
+        maxPosition: 1.0
+        skewFactor: 0.5
+        volCoeff: 2.0
+        volatilityWindowSize: 20
+        constantWeight: 0.3
+        inventoryWeight: 0.4
+        riskWeight: 0.3
+      ETHUSDT:
+        model: constant
+        baseOffsetTicks: 1.0
+
+  config:
+    symbols:
+      BTCUSDT:
+        open: true
+        updateIntervalMs: 1000
+        baseTokenId: BTC
+        quoteTokenId: USDT
+        platformTakerRate: 0.001
+        tickSize: 0.1
+        stepSize: 0.001
+        minSize: 0.001
+        maxSize: 10
+        minRate: 0.8
+        maxRate: 1.2
+        maxDelegateCount: 5
+        accountId: ""
+        apiKey: ""
+        secretKey: ""
+        password: ""
+      ETHUSDT:
+        open: true
+        updateIntervalMs: 1000
+        baseTokenId: ETH
+        quoteTokenId: USDT
+        platformTakerRate: 0.001
+        tickSize: 0.01
+        stepSize: 0.001
+        minSize: 0.001
+        maxSize: 10
+        minRate: 0.8
+        maxRate: 1.2
+        maxDelegateCount: 5
+        accountId: ""
+        apiKey: ""
+        secretKey: ""
+        password: ""
+

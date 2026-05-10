@@ -1,0 +1,11 @@
+server:
+  port: 9000
+spring:
+  application:
+    name: orderbook-maker
+
+app:
+  id: orderbook-maker
+
+
+

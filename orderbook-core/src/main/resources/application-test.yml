@@ -1,0 +1,7 @@
+# application-test.yml
+apollo:
+  meta: https://upex-apollo-configservice-qa.glb.osl-nucleus.io
+eureka:
+  client:
+    serviceUrl:
+      defaultZone: https://upex-cloud-eureka-qa.glb.osl-nucleus.io/eureka
