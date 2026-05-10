@@ -71,6 +71,14 @@ public class VolatilityTracker {
         }
     }
 
+    /**
+     * Returns the price history for a symbol (for alpha signal computation).
+     * The caller must synchronize on the returned LinkedList for thread safety.
+     */
+    public LinkedList<BigDecimal> getPriceHistory(String symbol) {
+        return priceHistory.get(symbol);
+    }
+
     /** Get the current window size for a symbol. */
     public int getWindowSize(String symbol) {
         return windowSizes.getOrDefault(symbol, 20);

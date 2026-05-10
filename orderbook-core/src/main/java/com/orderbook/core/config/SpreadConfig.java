@@ -45,5 +45,27 @@ public class SpreadConfig {
         private BigDecimal constantWeight = new BigDecimal("0.3");
         private BigDecimal inventoryWeight = new BigDecimal("0.4");
         private BigDecimal riskWeight = new BigDecimal("0.3");
+
+        // --- Alpha model ---
+        /** Whether to enable alpha signal integration. */
+        private boolean alphaEnabled = false;
+        /** ML model type: "random_forest", "xgboost", or null/empty to disable. */
+        private String alphaModelType = null;
+        /** Path to serialized ML model file. */
+        private String alphaModelPath = null;
+        /** ML model name for logging. */
+        private String alphaModelName = "default";
+        /** Weight of ML signal in composite alpha. */
+        private double alphaMlWeight = 0.3;
+        /** Order flow imbalance: number of depth levels. */
+        private int alphaOrderFlowDepth = 10;
+        /** Order flow imbalance: weight in composite. */
+        private double alphaOrderFlowWeight = 0.5;
+        /** Momentum: lookback periods. */
+        private int alphaMomentumLookback = 5;
+        /** Momentum: weight in composite. */
+        private double alphaMomentumWeight = 0.5;
+        /** Max adjustment to target position from alpha (in same unit as targetPosition). */
+        private BigDecimal alphaMaxPositionAdjustment = new BigDecimal("0.5");
     }
 }

@@ -21,10 +21,15 @@ eureka:
   client:
     enabled: false
 
-# Exchange config defaults for local development (streams disabled)
+# Exchange config defaults for local development
 # Override in Apollo or profile-specific config for production
 connect:
   exchange:
+    BYBIT:
+      api_key: ""
+      secret_key: ""
+      stream_public_use: true
+      stream_private_use: false
     OSL_GLOBAL:
       api_key: ""
       secret_key: ""
@@ -48,6 +53,16 @@ strategy:
         constantWeight: 0.3
         inventoryWeight: 0.4
         riskWeight: 0.3
+        alphaEnabled: true
+        alphaOrderFlowDepth: 10
+        alphaOrderFlowWeight: 0.5
+        alphaMomentumLookback: 5
+        alphaMomentumWeight: 0.5
+        alphaMaxPositionAdjustment: 0.5
+        alphaModelType: random_forest
+        alphaModelPath: models/btc_rf_model.json
+        alphaModelName: btc_rf_v1
+        alphaMlWeight: 0.3
       ETHUSDT:
         model: constant
         baseOffsetTicks: 1.0
