@@ -1,6 +1,6 @@
 # OrderBook Market Maker — 高级加密货币高频做市系统
 
-基于 Java + Spring Boot 的加密货币高频做市系统。聚合多交易所行情，以 Bybit 订单簿作为参考定价，在目标交易所执行铺单策略。覆盖策略建模、订单簿分析、Alpha 信号开发、机器学习预测与训练、组合风控、智能路由和 Prometheus 监控等完整技术栈。
+基于 Java + Spring Boot 的加密货币高频做市系统。聚合多交易所行情，以 Bybit 订单簿作为参考定价，在目标交易所执行铺单策略。覆盖价差模型、Alpha 信号、机器学习预测与训练、组合风控、智能路由和 Prometheus 监控等完整技术栈。
 
 ---
 
@@ -247,7 +247,7 @@ TrainingDataCollector        ← 每 N 个 tick 从策略执行中捕获特征
 
 ### 随机森林 (RandomForestModel)
 
-集成 N 棵决策树，输出为所有树预测均值。Jackson JSON 序列化，支持 `save(File)` / `load(File)` / `fromJson(String)` / DB 持久化。
+集成 N 棵决策树，输出为所有树预测均值。Jackson JSON 序列化，支持 `toJsonString()`（序列化为 JSON 字符串，用于数据库持久化）/ `load(File)`（从文件加载）/ `fromJson(String)`（从 JSON 字符串加载）。
 
 ### 集成路径
 
@@ -281,16 +281,27 @@ SpreadCalculatorFactory.buildCalculator()
 
 ### 单 tick 风控链
 
-策略执行时按顺序通过以下风控检查，任一未通过则跳过本轮交易：
+风控分两层执行：
+
+**前置检查（直接 return）**：无条件最小开销检查，在撤单之后立即执行：
 
 ```
-StrategyExecutor.execute()
+OrderBookSyncStrategyImpl.execute()
   ├── CircuitBreakerRisk      熔断：连续失败 N 次后冷却 M ms
-  ├── MaxDrawdownRisk         最大回撤：组合价值回撤超阈值停止
+  └── MaxDrawdownRisk         最大回撤：组合价值回撤超阈值停止
+         └─ 任一失败 → 直接 return（但撤单已执行）
+```
+
+**全链检查（canPlaceOrder）**：通过前置检查后，在铺单前执行完整风控链：
+
+```
+RiskControl.canPlaceOrder()
   ├── MaxOrderCountRisk       订单数量：活跃订单数超限停止
   ├── PriceDeviationRisk      价格偏离：挂单价格偏离市场价过远
+  ├── MaxDrawdownRisk         最大回撤（再次校验）
   ├── ConcentrationRisk       集中度：单币持仓超组合比例阈值
-  └── OrdersMakerImpl         铺单执行（使用 SpreadCalculator 计算价差）
+  └── CircuitBreakerRisk      熔断（再次校验）
+         └─ 全部通过 → OrdersMakerImpl 铺单
 ```
 
 ### 风控参数
@@ -523,16 +534,33 @@ OrdersMakerImpl.call()
 
 ## 策略执行流程
 
-每个交易对 (symbol) 有独立定时任务线程，按 `updateIntervalMs` 间隔执行完整 tick 循环：
+每个交易对 (symbol) 有独立单线程执行器，由事件驱动 + 定时兜底双重触发：
+
+- **事件驱动（主）**：`PriceMovementDetector` 监听 Bybit 订单簿 LMAX Disruptor 流水线，当中间价变动 >= 2 ticks 时，立即触发 `StrategyExecutor.triggerNow()`，延迟 ~2ms
+- **定时兜底**：每 5 秒检查一次，如果某个 symbol 超过 5 秒没有触发，补充触发一次
+- **节流保护**：最小触发间隔 200ms，防止高频更新时过度执行
+
+单次触发执行 `OrderBookSyncStrategyImpl.execute()` 完整流程：
 
 ```
 1. 记录中间价 (VolatilityTracker 更新)
-2. 风控检查：熔断 / 回撤 / 订单数 / 价格偏离 / 集中度
-3. ArbitrageDetector.scan()  — 扫描跨交易所价差套利机会
-4. CancelOrderBookOutOrder   — 撤销订单簿范围外的挂单
-5. UpdateOrderCount          — 更新活跃订单计数
-6. MaxDrawdownRisk.update    — 更新组合价值
-7. OrdersMakerImpl           — 同步订单簿并铺单
+2. 采集 ML 训练数据 (TrainingDataCollector)
+3. 扫描跨交易所套利 (ArbitrageDetector)
+
+4. CancelOrderBookOutOrder   — ★ 无条件优先执行：撤销订单簿范围外的挂单
+                               撤单是新下单前必须先执行的安全操作，
+                               风控只控制新下单，不控制撤单，防止失效订单被对手方吃掉
+
+5. 风控检查：熔断 / 最大回撤 (前置检查)
+   └─ 任一失败 → 跳过本轮下单
+
+6. UpdateOrderCount          — 更新活跃订单计数（供 MaxOrderCountRisk 使用）
+7. MaxDrawdownRisk.update    — 更新组合价值
+8. canPlaceOrder             — 风控全链检查：熔断 / 订单数 / 价格偏离 / 回撤 / 集中度
+   └─ 通过 → 9. OrdersMakerImpl
+   └─ 拒绝 → 记录本次失败
+
+9. OrdersMakerImpl           — 同步订单簿并铺单
    ├── updateArbitrageSignal() — 读取套利信号，计算价差收紧因子
    ├── resolveExchange()       — SOR 选择目标交易所（可选）
    ├── adjustOrderBook()       — SpreadCalculator 计算价格偏移 × tightenFactor
@@ -541,9 +569,13 @@ OrdersMakerImpl.call()
    ├── processOrders()         — 调整数量偏离容忍区间的订单
    ├── batchCancelOrder()      — 批量撤单
    └── batchPlaceOrder()       — 批量下单
-8. PortfolioRiskManager       — 每 5 秒刷新组合风控指标
-9. MetricsService.refreshAll() — 更新 Prometheus 指标
 ```
+
+以上为单次策略触发的执行流程。以下模块通过独立的 `@Scheduled` 定时器运行，不阻塞策略执行：
+
+- **PortfolioRiskManager** — 每 5 秒刷新组合风控指标（VaR、夏普比、集中度）
+- **MetricsService** — 每 5 秒更新 Prometheus 指标
+- **PnlService.logSummary()** — 每次策略 tick 输出 PnL 汇总日志
 
 ---
 

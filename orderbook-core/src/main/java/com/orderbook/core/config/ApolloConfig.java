@@ -175,4 +175,21 @@ public class ApolloConfig {
     public double getSORPositionWeight() {
         return ConfigService.getAppConfig().getDoubleProperty("sor.position.weight", 0.2);
     }
+
+    // ---- Event-driven strategy trigger config ----
+
+    /** Mid-price must move at least N ticks to trigger strategy execution. */
+    public int getStrategyTriggerTicks() {
+        return ConfigService.getAppConfig().getIntProperty("strategy.trigger.ticks", 2);
+    }
+
+    /** Minimum interval between event-triggered executions (milliseconds). */
+    public long getStrategyTriggerMinIntervalMs() {
+        return ConfigService.getAppConfig().getLongProperty("strategy.trigger.minIntervalMs", 200L);
+    }
+
+    /** Fallback timer interval in milliseconds. */
+    public long getStrategyFallbackIntervalMs() {
+        return ConfigService.getAppConfig().getLongProperty("strategy.fallback.interval.ms", 5000L);
+    }
 }
