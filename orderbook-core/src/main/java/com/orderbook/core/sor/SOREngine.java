@@ -2,6 +2,7 @@ package com.orderbook.core.sor;
 
 import com.orderbook.cmd.ExchangeCode;
 import com.orderbook.core.config.ApolloConfig;
+import com.orderbook.core.store.AccountStore;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -24,6 +25,14 @@ public class SOREngine {
     public SOREngine(RoutingTable routingTable, ApolloConfig apolloConfig) {
         this.routingTable = routingTable;
         this.apolloConfig = apolloConfig;
+    }
+
+    /** Extract base token from symbol, e.g. "BTCUSDT" → "BTC". */
+    private static String baseToken(String symbol) {
+        if (symbol == null || symbol.isEmpty()) return "";
+        if (symbol.endsWith("USDT")) return symbol.substring(0, symbol.length() - 4);
+        if (symbol.length() >= 3) return symbol.substring(0, symbol.length() - 3);
+        return symbol;
     }
 
     /**
@@ -93,7 +102,20 @@ public class SOREngine {
                         ExchangeStats::getFillProbabilityProxy).reversed();
                 break;
             case WEIGHTED:
-                comparator = (a, b) -> Double.compare(weightedScore(b), weightedScore(a));
+                double posWeight = apolloConfig.getSORPositionWeight();
+                comparator = (a, b) -> Double.compare(
+                        weightedScore(b, symbol, posWeight),
+                        weightedScore(a, symbol, posWeight));
+                break;
+            case PREFER_POSITION:
+                String token = baseToken(symbol);
+                comparator = (a, b) -> {
+                    double balA = AccountStore.getAccount(a.getExchange())
+                            .getBalance(token).getAvailable().doubleValue();
+                    double balB = AccountStore.getAccount(b.getExchange())
+                            .getBalance(token).getAvailable().doubleValue();
+                    return Double.compare(balB, balA);
+                };
                 break;
             default:
                 comparator = Comparator.comparingDouble(
@@ -107,13 +129,30 @@ public class SOREngine {
     }
 
     /**
-     * 结合了费率、延迟和流动性的加权得分（每项指标均为 0-1 范围）。
+     * 综合评分，结合费率、延迟、流动性和头寸权重。
+     * 各维度分数均归一化到 0-1 范围。
      */
-    private double weightedScore(ExchangeStats stats) {
+    private double weightedScore(ExchangeStats stats, String symbol, double posWeight) {
         double feeScore = 1.0 / (1.0 + stats.getTakerFeeRate().doubleValue() * 1000);
         double latScore = 1.0 / (1.0 + stats.getAvgLatencyMicros() / 1000.0);
         double liqScore = stats.getFillProbabilityProxy();
-        return 0.4 * feeScore + 0.3 * latScore + 0.3 * liqScore;
+        double posScore = positionScore(stats, symbol);
+
+        double scale = 1.0 - Math.max(0, Math.min(1, posWeight));
+        return scale * (0.4 * feeScore + 0.3 * latScore + 0.3 * liqScore)
+             + posWeight * posScore;
+    }
+
+    /**
+     * 头寸分数。base token 可用余额越多，分数越高（上限 0-1）。
+     */
+    private double positionScore(ExchangeStats stats, String symbol) {
+        String token = baseToken(symbol);
+        double bal = AccountStore.getAccount(stats.getExchange())
+                .getBalance(token).getAvailable().doubleValue();
+        if (bal <= 0) return 0;
+        double cap = 10.0; // 超过 10 个 base token 即视为满分
+        return Math.min(bal / cap, 1.0);
     }
 
     private ExchangeCode getPrimaryExchange() {

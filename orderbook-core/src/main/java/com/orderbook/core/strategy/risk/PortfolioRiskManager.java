@@ -43,11 +43,17 @@ public class PortfolioRiskManager {
     private final ApolloConfig apolloConfig;
 
     // Cached portfolio metrics
+    // 投资组合总价值
     private volatile BigDecimal totalPortfolioValue = BigDecimal.ZERO;
+    // 投资组合历史峰值价值（曾经达到过的最高总资产）
     private volatile BigDecimal peakPortfolioValue = BigDecimal.ZERO;
+    // 当前回撤百分比（从最高点跌下来的幅度）
     private volatile BigDecimal drawdownPct = BigDecimal.ZERO;
+    // 初始化标志（用来判断风控系统是否已经加载完数据准备就绪）
     private volatile boolean initialized = false;
+    // 投资组合在95%置信度下的风险价值（VaR）
     private volatile double portfolioVaR95 = 0.0;
+    // 投资组合的夏普比率（衡量风险调整后的收益）
     private volatile double portfolioSharpeRatio = 0.0;
 
     // Per-symbol concentration (symbol -> % of portfolio)

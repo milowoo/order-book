@@ -9,6 +9,7 @@ import java.util.Map;
 
 /**
  * REST API for portfolio-level risk metrics.
+ * 用于获取投资组合级别风险指标的 REST API。
  */
 @RestController
 @RequestMapping("/api/portfolio")

@@ -450,23 +450,34 @@ public class OrdersMakerImpl extends AbstractOrdersCmd implements OrdersMaker {
     }
 
     /**
-     * Read arbitrage signals from env and set the tighten factor.
-     * Called at the start of each call().
+     * Read arbitrage signals from env and set the tighten factor. 从环境变量中读取套利信号，并设置收紧系数。
+     * Called at the start of each call(). 在每次 call() 方法执行开始时被调用。
+     * 当监测到市场上有套利机会且利润越高时，系统会自动把买卖价差（Spread）收窄，
+     * 以便更激进地抢单成交；但同时设置了底线，防止价差缩得太小导致风险过大。
      */
     private void updateArbitrageSignal(Map<String, Object> env) {
         // Reset to default (no tightening)
+        //每次执行这个方法时，先把 arbitrageTightenFactor（套利收紧系数）重置为 1。
+        // 这意味着默认情况下不做任何收紧操作，保持原有的价差。
         this.arbitrageTightenFactor = BigDecimal.ONE;
 
         try {
             if (env == null || !env.containsKey("arb_net_profit")) return;
             if (!"true".equals(env.get("arb_executable"))) return;
 
+            //把套利净利润转换成数字。如果利润小于或等于 0（没赚钱甚至亏钱），那就没有收紧价差的必要，直接退出。
             BigDecimal netProfit = new BigDecimal(env.get("arb_net_profit").toString());
             if (netProfit.compareTo(BigDecimal.ZERO) <= 0) return;
 
-            // Tighten spread proportionally to the arbitrage profit
-            // Higher profit = tighter spread (factor closer to 0)
-            // Cap at 50% tightening (factor >= 0.5)
+            // Tighten spread proportionally to the arbitrage profit 根据套利利润按比例收紧价差
+            // Higher profit = tighter spread (factor closer to 0) 利润越高 = 价差越紧（系数越接近 0）
+            // Cap at 50% tightening (factor >= 0.5) 收紧幅度上限为 50%（系数 >= 0.5）
+            /**
+             * 1.0 - netProfit.doubleValue() * 0.01：利润每增加 1 个单位，收紧系数就减少 0.01。利润越高，计算出的系数就越小（越接近 0），
+             * 代表价差缩得越紧。
+             * Math.max(0.5, ...)：这是保底机制。无论利润有多高，收紧系数最小只能是 0.5。也就是说，价差最多只能砍掉一半（收紧 50%），
+             * 不能无限缩小。
+             */
             double tighten = Math.max(0.5, 1.0 - netProfit.doubleValue() * 0.01);
             this.arbitrageTightenFactor = BigDecimal.valueOf(tighten);
 

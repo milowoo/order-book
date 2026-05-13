@@ -66,8 +66,8 @@ public class RandomForestModel implements MLModel {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    /** Save model to a JSON file. */
-    public void save(File file) throws IOException {
+    /** Serialize model to JSON string. */
+    public String toJsonString() throws JsonProcessingException {
         ObjectNode root = MAPPER.createObjectNode();
         root.put("name", name);
         root.put("featureCount", featureCount);
@@ -77,29 +77,12 @@ public class RandomForestModel implements MLModel {
             treesArray.add(tree.toJson());
         }
 
-        MAPPER.writerWithDefaultPrettyPrinter().writeValue(file, root);
-        log.info("Saved RandomForestModel '{}' with {} trees to {}", name, trees.size(), file);
+        return MAPPER.writeValueAsString(root);
     }
 
     /** Load model from a JSON file. */
     public static RandomForestModel load(File file) throws IOException {
-        ObjectNode root = (ObjectNode) MAPPER.readTree(file);
-        String modelName = root.get("name").asText();
-        int fCount = root.get("featureCount").asInt();
-
-        ArrayNode treesArray = (ArrayNode) root.get("trees");
-        List<DecisionTree> treeList = new ArrayList<>();
-        for (int i = 0; i < treesArray.size(); i++) {
-            treeList.add(DecisionTree.fromJson(treesArray.get(i).toString()));
-        }
-
-        log.info("Loaded RandomForestModel '{}' with {} trees from {}", modelName, treeList.size(), file);
-        return new RandomForestModel(modelName, fCount, treeList);
-    }
-
-    /** Load model from a classpath resource. */
-    public static RandomForestModel loadFromResource(String resourcePath) throws IOException {
-        return load(new File(RandomForestModel.class.getResource(resourcePath).getFile()));
+        return fromJson(MAPPER.readTree(file).toString());
     }
 
     /** Build a model from JSON string. */

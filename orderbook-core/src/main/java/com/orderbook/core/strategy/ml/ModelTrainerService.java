@@ -193,14 +193,7 @@ public class ModelTrainerService {
     // ---- JSON serialization helpers ----
 
     private String modelToJson(RandomForestModel model) throws Exception {
-        com.fasterxml.jackson.databind.node.ObjectNode root = MAPPER.createObjectNode();
-        root.put("name", model.getName());
-        root.put("featureCount", model.featureCount());
-        com.fasterxml.jackson.databind.node.ArrayNode treesArray = root.putArray("trees");
-        for (DecisionTree tree : model.getTrees()) {
-            treesArray.add(MAPPER.readTree(tree.toJson()));
-        }
-        return MAPPER.writeValueAsString(root);
+        return model.toJsonString();
     }
 
     private RandomForestModel modelFromJson(String json) {

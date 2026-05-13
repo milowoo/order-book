@@ -11,5 +11,7 @@ public enum RoutingStrategy {
     /** 选择流动性最深（盘口厚度最好）的交易所。 */
     BEST_LIQUIDITY,
     /** 基于费率、延迟和流动性分数的加权组合策略。 */
-    WEIGHTED
+    WEIGHTED,
+    /** 选择 base token 可用头寸最多的交易所，优先在已有仓位的交易所成交。 */
+    PREFER_POSITION
 }

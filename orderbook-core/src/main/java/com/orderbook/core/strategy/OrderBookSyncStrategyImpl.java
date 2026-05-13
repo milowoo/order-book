@@ -98,20 +98,8 @@ public class OrderBookSyncStrategyImpl implements Strategy {
         //记录中间价以用于波动率追踪（供价差计算器使用）。
         recordMidPrice(symbol, symbolBo);
 
-        // Capture training data for ML model training
+        // Capture training data for ML model training 采集用于机器学习模型训练的数据
         trainingDataCollector.captureFeatures(symbol, symbolBo);
-
-        RiskControl rc = getOrCreateRiskControl(symbol, symbolBo);
-        if (rc.isCircuitBroken()) {
-            log.warn("[{}] Circuit breaker open, skipping OrderBookSyncStrategy", symbol);
-            return;
-        }
-
-        // Check max drawdown before proceeding 在继续执行之前，先检查最大回撤
-        if (isMaxDrawdownExceeded(rc)) {
-            log.warn("[{}] Max drawdown exceeded, skipping OrderBookSyncStrategy", symbol);
-            return;
-        }
 
         Map<String, Object> env = createEnv(symbol, symbolBo, context);
         ExchangeCode exchange = ExchangeCode.OSL_GLOBAL;
@@ -130,23 +118,51 @@ public class OrderBookSyncStrategyImpl implements Strategy {
             log.warn("[{}] Arbitrage scan failed", symbol, e);
         }
 
+        // Step 0: Always cancel orders outside the order book range first.
+        //          This is a safety measure — stale orders can get picked off regardless
+        //          of risk state. Risk controls gate new placement, not order cleanup.
+        // 步骤0: 无论风控状态如何，始终先取消超出订单簿范围的挂单。
+        //        风控应控制新下单，而不是控制撤单。
         try {
-            // Step 1: Cancel orders outside the order book range
             cancelOrderBookOutOrder.call(env, exchange, symbol);
+        } catch (Exception e) {
+            log.error("[{}] Cancel out-of-range orders failed", symbol, e);
+        }
 
-            // Step 2: Update order count for MaxOrderCountRisk
+        RiskControl rc = getOrCreateRiskControl(symbol, symbolBo);
+        if (rc.isCircuitBroken()) {
+            log.warn("[{}] Circuit breaker open, skipping OrderBookSyncStrategy", symbol);
+            return;
+        }
+
+        // Check max drawdown before proceeding 在继续执行之前，先检查最大回撤
+        if (isMaxDrawdownExceeded(rc)) {
+            log.warn("[{}] Max drawdown exceeded, skipping OrderBookSyncStrategy", symbol);
+            return;
+        }
+
+        try {
+
+            // Step 1: Update order count for MaxOrderCountRisk 更新最大挂单数量风控的计数
             updateOrderCount(symbol, symbolBo);
 
-            // Step 3: Update MaxDrawdownRisk state
+            // Step 2: Update MaxDrawdownRisk state 更新最大回撤风控的状态
             updateMaxDrawdownRisk(symbol, symbolBo);
 
-            // Step 4: Sync orders with reference order book
-            boolean success = ordersMaker.call(env, exchange, symbol);
-
-            if (success) {
-                rc.recordSuccess(symbol);
-            } else {
+            // Step 3: Run all registered risk checks (circuit breaker,
+            //          max order count, price deviation, max drawdown, concentration)
+            //执行所有已注册的风控检查（熔断、最大挂单数量、价格偏离度、最大回撤、持仓集中度）
+            if (!rc.canPlaceOrder(symbol, "", BigDecimal.ZERO, BigDecimal.ZERO)) {
+                log.warn("[{}] Risk control blocked order placement after cancelling out-of-range orders", symbol);
                 rc.recordFailure(symbol);
+            } else {
+                // Step 4: Sync orders with reference order book
+                boolean success = ordersMaker.call(env, exchange, symbol);
+                if (success) {
+                    rc.recordSuccess(symbol);
+                } else {
+                    rc.recordFailure(symbol);
+                }
             }
         } catch (Exception e) {
             log.error("[{}] OrderBookSyncStrategy execution failed", symbol, e);

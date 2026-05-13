@@ -170,4 +170,9 @@ public class ApolloConfig {
     public String getSORFallbackExchanges() {
         return ConfigService.getAppConfig().getProperty("sor.fallback.exchanges", "");
     }
+
+    /** SOR position weight for WEIGHTED strategy (0.0 ~ 1.0). */
+    public double getSORPositionWeight() {
+        return ConfigService.getAppConfig().getDoubleProperty("sor.position.weight", 0.2);
+    }
 }

@@ -403,14 +403,18 @@ OrdersMakerImpl.call()
 
 ### 加权评分
 
-WEIGHTED 策略使用综合评分：
+WEIGHTED 策略使用综合评分，费率、延迟、流动性、头寸四维度加权：
+
 ```
-score = 0.4 × feeScore + 0.3 × latScore + 0.3 × liqScore
+score = scale × (0.4 × feeScore + 0.3 × latScore + 0.3 × liqScore) + posWeight × posScore
+scale = 1.0 - posWeight
 ```
 
-- feeScore = 1 / (1 + takerFeeRate × 1000)
-- latScore = 1 / (1 + avgLatencyMicros / 1000)
-- liqScore = fillProbabilityProxy
+- feeScore = 1 / (1 + takerFeeRate × 1000) — 费率竞争力
+- latScore = 1 / (1 + avgLatencyMicros / 1000) — 延迟竞争力
+- liqScore = fillProbabilityProxy — 流动性深度
+- posScore = min(available / 10.0, 1.0) — 头寸充足度（base token 可用余额归一化）
+- `sor.position.weight` 可配置（默认 0.2），控制头寸维度在综合评分中的占比
 
 ### REST API
 
