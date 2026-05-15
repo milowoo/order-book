@@ -9,6 +9,7 @@ import com.orderbook.core.domain.OrderBook;
 import com.orderbook.core.domain.SymbolBo;
 import com.orderbook.core.arbitrage.ArbitrageOpportunity;
 import com.orderbook.core.arbitrage.ArbitrageService;
+import com.orderbook.core.arbitrage.ArbitrageTaker;
 import com.orderbook.core.store.OpenOrdersStore;
 import com.orderbook.core.store.OrderBookStore;
 import com.orderbook.core.store.PriceStore;
@@ -74,6 +75,9 @@ public class OrderBookSyncStrategyImpl implements Strategy {
     private ArbitrageService arbitrageService;
 
     @Autowired
+    private ArbitrageTaker arbitrageTaker;
+
+    @Autowired
     private PortfolioRiskManager portfolioRiskManager;
 
     @Autowired
@@ -118,6 +122,21 @@ public class OrderBookSyncStrategyImpl implements Strategy {
             log.warn("[{}] Arbitrage scan failed", symbol, e);
         }
 
+        // Step 0a: If a high-confidence arbitrage opportunity exists where OSL_GLOBAL
+        //          is one leg, place a small taker order to directly capture the arb.
+        //          The existing market making provides the natural hedge on the opposite side.
+        //          This runs asynchronously (serialized per symbol) and does not block the
+        //          strategy tick. Only fires when taker execution is enabled in config.
+        // 步骤0a: 如果存在高置信度的跨所套利机会（OSL_GLOBAL 是其中一条腿），
+        //         吃一个小单直接捕获价差。现有做市订单在另一侧提供自然对冲。
+        //         异步执行（按交易对串行化），不阻塞策略 tick。
+        try {
+            ArbitrageOpportunity best = arbitrageService.getBestExecutable(symbol);
+            arbitrageTaker.executeIfProfitable(best);
+        } catch (Exception e) {
+            log.warn("[{}] Arbitrage taker execution failed", symbol, e);
+        }
+
         // Step 0: Always cancel orders outside the order book range first.
         //          This is a safety measure — stale orders can get picked off regardless
         //          of risk state. Risk controls gate new placement, not order cleanup.
@@ -127,6 +146,16 @@ public class OrderBookSyncStrategyImpl implements Strategy {
             cancelOrderBookOutOrder.call(env, exchange, symbol);
         } catch (Exception e) {
             log.error("[{}] Cancel out-of-range orders failed", symbol, e);
+        }
+
+        // Check reference order book health before proceeding with order placement.
+        // If the reference exchange (BYBIT) order book is stale due to checksum mismatch
+        // or WebSocket reconnection, skip order placement to avoid acting on bad data.
+        // 检查参考交易所（BYBIT）订单簿状态。如果校验和不一致或断线重连导致数据不可用，
+        // 跳过本轮下单，等待数据恢复。
+        if (orderBookStore.isStale(ExchangeCode.BYBIT, symbolBo.getSymbolId())) {
+            log.warn("[{}] BYBIT order book is stale, skipping order placement", symbol);
+            return;
         }
 
         RiskControl rc = getOrCreateRiskControl(symbol, symbolBo);

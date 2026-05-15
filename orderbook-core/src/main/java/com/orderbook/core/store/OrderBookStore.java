@@ -54,6 +54,28 @@ public class OrderBookStore {
         return abstractSymbolOrderBooks.get();
     }
 
+    /**
+     * Check if order book for given exchange/symbol is in stale state
+     * (checksum validation failed, rebuild in progress).
+     */
+    public boolean isStale(ExchangeCode exchange, String symbol) {
+        AbstractSymbolOrderBooks books = orderBookMap.get(computeKey(exchange.name(), symbol));
+        return books != null && books.isStale();
+    }
+
+    public boolean isStale(String exchange, String symbol) {
+        AbstractSymbolOrderBooks books = orderBookMap.get(computeKey(exchange, symbol));
+        return books != null && books.isStale();
+    }
+
+    /** Force-mark a symbol as stale (useful during reconnection). */
+    public void markStale(ExchangeCode exchange, String symbol) {
+        AbstractSymbolOrderBooks books = orderBookMap.get(computeKey(exchange.name(), symbol));
+        if (books != null) {
+            books.markStale();
+        }
+    }
+
     public Collection<AbstractSymbolOrderBooks> getAllOrderBook() {
         return orderBookMap.values();
     }

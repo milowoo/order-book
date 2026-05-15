@@ -20,6 +20,9 @@ public abstract class AbstractSymbolOrderBooks implements EventHandler<OrderBook
     private final ConcurrentSkipListMap<BigDecimal, BigDecimal> ask = new ConcurrentSkipListMap<>();
     private final ConcurrentSkipListMap<BigDecimal, BigDecimal> bid = new ConcurrentSkipListMap<>(Comparator.reverseOrder());
 
+    /** True when checksum validation failed and order book is being rebuilt. */
+    private volatile boolean stale = false;
+
     public abstract String symbol();
 
     public abstract ExchangeCode platform();
@@ -36,12 +39,19 @@ public abstract class AbstractSymbolOrderBooks implements EventHandler<OrderBook
         }
         insert(event);
         //checkSum 检测是否需要重新订阅全量数据 bitget 系检测
-        if (ExchangeCode.bitgetIn().contains(platform()) && event.getChecksum() != 0 && !checkSum(event.getChecksum(), 25)) {
-            SpringUtil.getBean(RebuildOrderBookUtil.class).rebuildOrderBook(platform(), symbol());
-            //清理本地缓存，等待新数据进来
-            ask.clear();
-            bid.clear();
-            return;
+        if (ExchangeCode.bitgetIn().contains(platform()) && event.getChecksum() != 0) {
+            if (checkSum(event.getChecksum(), 25)) {
+                // Checksum passed — local state is consistent with exchange
+                stale = false;
+            } else {
+                log.warn("[{}][{}] Checksum mismatch, marking stale, triggering rebuild", platform(), symbol());
+                stale = true;
+                SpringUtil.getBean(RebuildOrderBookUtil.class).rebuildOrderBook(platform(), symbol());
+                //清理本地缓存，等待新数据进来
+                ask.clear();
+                bid.clear();
+                return;
+            }
         }
     }
 
@@ -103,6 +113,16 @@ public abstract class AbstractSymbolOrderBooks implements EventHandler<OrderBook
                 orderBook.putAll(putKeyMap);
             }
         }
+    }
+
+    /** Whether order book is in stale state (checksum failure, rebuild in progress). */
+    public boolean isStale() {
+        return stale;
+    }
+
+    /** Force-mark stale for external recovery scenarios (e.g. reconnect). */
+    public void markStale() {
+        this.stale = true;
     }
 
     /**

@@ -120,3 +120,8 @@ arbitrage:
   enabled: true
   minProfitUsdt: 0.5
   maxOrderQty: 1
+  # Taker execution (hybrid mode: market making + selective taker orders)
+  taker:
+    enabled: false
+    maxQty: 1
+    minProfitUsdt: 1.0

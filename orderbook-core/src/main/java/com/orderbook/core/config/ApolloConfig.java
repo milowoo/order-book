@@ -110,6 +110,21 @@ public class ApolloConfig {
         return ConfigService.getAppConfig().getIntProperty("arbitrage.maxOrderQty", 1);
     }
 
+    /** Taker execution master switch for arbitrage (hybrid mode). */
+    public boolean getArbitrageTakerEnabled() {
+        return ConfigService.getAppConfig().getBooleanProperty("arbitrage.taker.enabled", false);
+    }
+
+    /** Maximum quantity per taker order. */
+    public int getArbitrageTakerMaxQty() {
+        return ConfigService.getAppConfig().getIntProperty("arbitrage.taker.maxQty", 1);
+    }
+
+    /** Minimum net profit in USDT to trigger a taker order (higher than scan threshold). */
+    public double getArbitrageTakerMinProfitUsdt() {
+        return ConfigService.getAppConfig().getDoubleProperty("arbitrage.taker.minProfitUsdt", 1.0);
+    }
+
     // ---- Portfolio risk config ----
 
     /** Maximum concentration per symbol (e.g. 0.30 = 30%). */

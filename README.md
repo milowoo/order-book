@@ -628,18 +628,6 @@ strategy:
 
 ---
 
-## 本地开发
+## 部署
 
-```bash
-# 编译
-mvn compile -pl orderbook-core -am
-
-# 启动 (local profile)
-java -Dspring.profiles.active=local \
-     -jar orderbook-core/target/orderbook-core.jar
-```
-
-注意事项：
-- 本地环境不连接 Apollo，配置在 `application-local.yml`
-- Bybit 行情流默认开启，可接收参考订单簿数据
-- 策略自动启动开关在 `StrategyBootstrap.isAutoStartup()`，当前为 `false`
+部署文档见 [deploy.md](deploy.md)，涵盖环境依赖、构建、DB 初始化、配置管理、启动参数、监控、生产检查清单等。

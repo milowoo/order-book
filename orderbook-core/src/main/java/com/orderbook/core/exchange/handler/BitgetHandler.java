@@ -17,6 +17,7 @@ import com.orderbook.core.exchange.disruptor.OrderBookDisruptor;
 import com.orderbook.core.service.PnlService;
 import com.orderbook.core.store.AccountStore;
 import com.orderbook.core.store.OpenOrdersStore;
+import com.orderbook.core.store.OrderBookStore;
 import com.orderbook.core.store.PriceStore;
 import com.orderbook.core.store.SymbolStore;
 import io.reactivex.rxjava3.disposables.Disposable;
@@ -49,6 +50,9 @@ public class BitgetHandler {
     private SymbolStore symbolStore;
     @Autowired
     private PriceStore priceStore;
+
+    @Autowired
+    private OrderBookStore orderBookStore;
 
     private BitgetStreamingService publicStreamingService;
     private BitgetStreamingExchange authExchange;
@@ -165,6 +169,14 @@ public class BitgetHandler {
         authExchange = null;
         publicStreamingService = null;
         lastDealQty.clear();
+
+        // Mark all order books as stale — data will be inconsistent until
+        // fresh snapshots arrive after reconnect.
+        ExchangeCode exchange = getExchange();
+        for (SymbolBo bo : symbolStore.getActiveSymbols()) {
+            orderBookStore.markStale(exchange, bo.getSymbolId());
+        }
+
         connectAndSubscribe();
         lastMessageTime.set(System.currentTimeMillis());
         log.warn("[Bitget] Reconnect complete");
