@@ -8,9 +8,9 @@ import java.util.List;
 public class ModelEvaluator {
 
     /**
-     * 在测试数据上评估随机森林模型。
+     * 在测试数据上评估机器学习模型。
      */
-    public EvaluationResult evaluate(RandomForestModel model, List<CartTrainer.TrainingExample> testData) {
+    public EvaluationResult evaluate(MLModel model, List<CartTrainer.TrainingExample> testData) {
         if (testData == null || testData.isEmpty()) {
             return new EvaluationResult(0, 0, 0);
         }

@@ -9,6 +9,7 @@ import java.util.Map;
 
 /**
  * 用于机器学习模型训练与管理的 REST API。
+ * 支持 RandomForest 和 XGBoost 两种模型类型。
  */
 @RestController
 @RequestMapping("/api/ml")
@@ -25,26 +26,54 @@ public class TrainingController {
 
     /**
      * Trigger training for a symbol.
+     * <p>
+     * 支持两种模型类型：
+     * <ul>
+     *   <li>{@code random_forest}（默认）：使用 nTrees / maxDepth / minSamplesLeaf / featureRatio</li>
+     *   <li>{@code xgboost}：使用 numRound / eta / gamma / minChildWeight / subsample / colsampleBytree</li>
+     * </ul>
      */
     @PostMapping("/train")
     public Map<String, Object> train(@RequestParam String symbol,
+                                      @RequestParam(defaultValue = "random_forest") String modelType,
+                                      // RandomForest params
                                       @RequestParam(defaultValue = "50") int nTrees,
                                       @RequestParam(defaultValue = "6") int maxDepth,
                                       @RequestParam(defaultValue = "5") int minSamplesLeaf,
-                                      @RequestParam(defaultValue = "0.6") double featureRatio) {
-        MLConfig config = MLConfig.builder()
-                .modelType("random_forest")
-                .modelName(symbol + "_rf")
-                .rfNumTrees(nTrees)
-                .rfMaxDepth(maxDepth)
-                .rfMinSamplesLeaf(minSamplesLeaf)
-                .rfFeatureRatio(featureRatio)
-                .build();
+                                      @RequestParam(defaultValue = "0.6") double featureRatio,
+                                      // XGBoost params
+                                      @RequestParam(defaultValue = "100") int numRound,
+                                      @RequestParam(defaultValue = "0.3") double eta,
+                                      @RequestParam(defaultValue = "0.0") double gamma,
+                                      @RequestParam(defaultValue = "1") int minChildWeight,
+                                      @RequestParam(defaultValue = "1.0") double subsample,
+                                      @RequestParam(defaultValue = "0.8") double colsampleBytree) {
+        MLConfig.MLConfigBuilder builder = MLConfig.builder()
+                .modelType(modelType)
+                .modelName(symbol + "_" + modelType);
 
-        ModelVersionEntity model = modelTrainerService.train(symbol, config);
+        if ("xgboost".equals(modelType)) {
+            builder
+                    .xgbNumRound(numRound)
+                    .xgbMaxDepth(maxDepth)    // reuse maxDepth param for XGBoost
+                    .xgbEta(eta)
+                    .xgbGamma(gamma)
+                    .xgbMinChildWeight(minChildWeight)
+                    .xgbSubsample(subsample)
+                    .xgbColsampleBytree(colsampleBytree);
+        } else {
+            builder
+                    .rfNumTrees(nTrees)
+                    .rfMaxDepth(maxDepth)
+                    .rfMinSamplesLeaf(minSamplesLeaf)
+                    .rfFeatureRatio(featureRatio);
+        }
+
+        ModelVersionEntity model = modelTrainerService.train(symbol, builder.build());
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("success", model != null);
+        result.put("modelType", modelType);
         if (model != null) {
             result.put("modelId", model.getId());
             result.put("modelName", model.getModelName());
@@ -58,7 +87,6 @@ public class TrainingController {
      */
     @GetMapping("/models")
     public List<ModelVersionEntity> listModels(@RequestParam String symbol) {
-        // This would use a query in the service; simplified for now
         return List.of();
     }
 
@@ -79,13 +107,16 @@ public class TrainingController {
      */
     @GetMapping("/active/{symbol}")
     public Map<String, Object> getActiveModel(@PathVariable String symbol) {
-        RandomForestModel model = mlModelRegistry.getModel(symbol);
+        MLModel model = mlModelRegistry.getModel(symbol);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("symbol", symbol);
         result.put("hasActiveModel", model != null);
         result.put("modelName", model != null ? model.getName() : null);
-        result.put("treeCount", model != null ? model.treeCount() : 0);
+        result.put("modelType", model != null ? detectModelType(model) : null);
+        if (model instanceof RandomForestModel) {
+            result.put("treeCount", ((RandomForestModel) model).treeCount());
+        }
         return result;
     }
 
@@ -100,5 +131,11 @@ public class TrainingController {
         result.put("symbol", symbol);
         result.put("labeledCount", count);
         return result;
+    }
+
+    private String detectModelType(MLModel model) {
+        if (model instanceof XGBoostModel) return "xgboost";
+        if (model instanceof RandomForestModel) return "random_forest";
+        return "unknown";
     }
 }

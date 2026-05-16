@@ -36,6 +36,29 @@ public class MLConfig {
     /** 随机森林的特征采样比例. */
     private double rfFeatureRatio = 0.6;
 
+    // ---- XGBoost hyperparameters ----
+
+    /** XGBoost 训练轮数。 */
+    private int xgbNumRound = 100;
+
+    /** XGBoost 树的最大深度。 */
+    private int xgbMaxDepth = 6;
+
+    /** XGBoost 学习率（步长）。 */
+    private double xgbEta = 0.3;
+
+    /** XGBoost 分裂最小损失减少量（gamma）。 */
+    private double xgbGamma = 0.0;
+
+    /** XGBoost 叶子节点最小权重和。 */
+    private int xgbMinChildWeight = 1;
+
+    /** XGBoost 行采样比例。 */
+    private double xgbSubsample = 1.0;
+
+    /** XGBoost 列采样比例（每棵树）。 */
+    private double xgbColsampleBytree = 0.8;
+
     /** 机器学习 Alpha 信号在复合 Alpha 中的权重. */
     private double alphaWeight = 0.3;
 

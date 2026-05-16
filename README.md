@@ -143,7 +143,7 @@ alpha < 0（看跌）→ target 降低 → 倾向于卖出 → 降低库存
 | `alphaMomentumLookback` | 5 | 动量回溯 tick 数 |
 | `alphaMomentumWeight` | 0.5 | 动量信号权重 |
 | `alphaMaxPositionAdjustment` | 0.5 | 目标持仓最大偏移量 |
-| `alphaModelType` | — | ML 模型类型 (`random_forest`) |
+| `alphaModelType` | — | ML 模型类型 (`random_forest`, `xgboost`) |
 | `alphaModelPath` | — | 序列化模型文件路径 |
 | `alphaModelName` | default | 模型名称 |
 | `alphaMlWeight` | 0.3 | ML 信号权重 |
@@ -152,14 +152,16 @@ alpha < 0（看跌）→ target 降低 → 倾向于卖出 → 降低库存
 
 ## 机器学习在交易中的应用
 
-系统内置纯 Java 实现的随机森林 (Random Forest) 推理与训练管线，将 ML 模型的预测作为 Alpha 信号参与价差计算。
+系统内置双模型推理与训练管线，支持随机森林 (RandomForest) 和 XGBoost 两种模型，将 ML 预测作为 Alpha 信号参与价差计算。
 
 ### 推理架构
 
 ```
 MLModel (接口)
- └── RandomForestModel    决策树集成 → 均值输出
-      └── DecisionTree    二叉树 → JSON 序列化
+ ├── RandomForestModel    决策树集成 → 均值输出
+ │    └── DecisionTree    二叉树 → JSON 序列化
+ └── XGBoostModel        XGBoost4j Booster 包装 → DMatrix 推理
+      └── Booster         原生 Booster 二进制 → Base64 序列化
 
 MLAlphaSignal (AlphaSignal 实现)
  ├── FeatureExtractor   → 提取 10 维市场微观结构特征
@@ -171,7 +173,7 @@ AlphaAggregator.registerMLModel() → CompositeAlpha 加权合成
 
 ### 训练管线
 
-系统支持在运行时收集训练数据、训练模型、评估并激活新模型：
+系统支持在运行时收集训练数据、训练模型、评估并激活新模型。`ModelTrainerService` 根据 `MLConfig.modelType` 自动分派到对应的训练器：
 
 ```
 TrainingDataCollector        ← 每 N 个 tick 从策略执行中捕获特征
@@ -182,9 +184,14 @@ TrainingDataCollector        ← 每 N 个 tick 从策略执行中捕获特征
        ▼
   ModelTrainerService.train(symbol, config)
        │
-       ├── CartTrainer              CART 回归树训练（MSE 分裂）
-       ├── RandomForestTrainer      Bagging + 特征子采样
-       └── ModelEvaluator           R² / MAE / RMSE
+       ├── modelType = "random_forest"
+       │    ├── CartTrainer              CART 回归树训练（MSE 分裂）
+       │    ├── RandomForestTrainer      Bagging + 特征子采样
+       │    └── ModelEvaluator           R² / MAE / RMSE
+       │
+       └── modelType = "xgboost"
+            ├── XGBoostTrainer           XGBoost4j DMatrix 训练
+            └── ModelEvaluator           R² / MAE / RMSE
               │
               ▼
   model_version 表 (MySQL)    ← 存储模型 + 超参数 + 评估指标
@@ -205,6 +212,15 @@ TrainingDataCollector        ← 每 N 个 tick 从策略执行中捕获特征
 `RandomForestTrainer` 使用 Bagging + 特征子采样训练多棵 CART 树：
 - 每棵树在 bootstrap 样本上训练，随机选取 `featureRatio * totalFeatures` 个特征
 - 预测为所有树输出均值
+
+#### XGBoost 训练
+
+`XGBoostTrainer` 基于 XGBoost4j 原生库进行 GPU/CPU 加速训练：
+- 将 `List<TrainingExample>` 转换为 `DMatrix` 格式
+- 通过 `MLConfig` 传递 7 个 XGBoost 超参数
+- 支持自定义 `numRound`（迭代轮数）和 `maxDepth`（树最大深度）
+- 训练完成后通过 `Booster.saveModel()` 导出模型，以 Base64 编码持久化到数据库
+- 依赖本地 XGBoost 原生库（Linux/Mac 通过 xgboost4j_2.12 自动加载）
 
 #### 训练数据收集
 
@@ -249,22 +265,71 @@ TrainingDataCollector        ← 每 N 个 tick 从策略执行中捕获特征
 
 集成 N 棵决策树，输出为所有树预测均值。Jackson JSON 序列化，支持 `toJsonString()`（序列化为 JSON 字符串，用于数据库持久化）/ `load(File)`（从文件加载）/ `fromJson(String)`（从 JSON 字符串加载）。
 
+### XGBoost 模型 (XGBoostModel)
+
+基于 XGBoost4j `Booster` 的包装实现，提供原生 XGBoost 推理能力：
+
+```java
+public class XGBoostModel implements MLModel {
+    // 单行推理：double[] → DMatrix → Booster.predict()
+    double predict(double[] features);
+
+    // 序列化：Booster → Base64 → "xgboost_base64:..."
+    String toJsonString();
+
+    // 反序列化（自动检测格式）
+    static XGBoostModel fromJson(String json);
+    static XGBoostModel fromJson(String json, String name, int featureCount);
+
+    // 从 XGBoost 原生二进制文件加载
+    static XGBoostModel loadModelFile(File file, String name, int featureCount);
+
+    // 读取 Base64 文件内容（配合 fromJson 使用）
+    static String loadBase64FromFile(File file);
+}
+```
+
+**序列化格式**：`xgboost_base64:<Base64 编码的 Booster 二进制数据>`，直接存储在 `model_version` 表的 `modelDataJson` 字段中。
+
+**模型类型分派**：`MLModelRegistry` 从数据库 `hyperparametersJson` 中解析 `MLConfig.modelType` 字段：
+- `"xgboost"` → `XGBoostModel.fromJson(modelDataJson, modelName, featureCount)`
+- `"random_forest"` → `RandomForestModel.fromJson(modelDataJson)`
+- 同时兼容基于 `modelDataJson` 内容前缀的自动检测（`xgboost_base64:` 前缀）
+
 ### 集成路径
 
-ML 模型在 `SpreadCalculatorFactory` 中注册到 `AlphaAggregator`：
+ML 模型在 `SpreadCalculatorFactory` 中注册到 `AlphaAggregator`，支持两种模型类型：
 
 ```
 SpreadCalculatorFactory.buildCalculator()
   ├── 读取 alphaModelType / alphaModelPath
-  ├── RandomForestModel.load(file) → MLModel
+  │
+  ├── alphaModelType = "random_forest"
+  │    └── RandomForestModel.load(file) → MLModel
+  │
+  ├── alphaModelType = "xgboost"
+  │    └── XGBoostModel.fromJson(loadBase64FromFile(file), name, 10) → MLModel
+  │
   └── alphaAggregator.registerMLModel(symbol, model)
 ```
 
-训练后的模型通过 `MLModelRegistry.getModel(symbol)` 获取，支持 DB 或文件加载。
+训练后的模型通过 `MLModelRegistry.getModel(symbol)` 获取，支持 DB 或文件加载。`ModelTrainerService` 根据 `MLConfig.modelType` 自动分派到正确的训练器和序列化路径：
 
-### 扩展性
+```
+ModelTrainerService.train()
+  ├── modelType = "xgboost" → XGBoostTrainer → XGBoostModel → xgboost_base64:... 序列化
+  └── modelType = "random_forest" → RandomForestTrainer → RandomForestModel → JSON 序列化
+```
 
-系统通过 `MLModel` 接口支持扩展其他模型。引入 xgboost4j 或 lightgbmlib 依赖后，实现 `MLModel` 接口即可接入 XGBoost / LightGBM。
+模型激活时，`TrainingController` 接收 `modelType` 参数和 6 个 XGBoost 专属超参数，自动构建对应训练配置。REST API 返回结果中通过 `instanceof` 检测模型类型，XGBoost 模型显示 "XGBoost"，RF 模型显示树数量。
+
+### 模型热切换原理
+
+`ModelTrainerService.saveModel()` 使用 `MLModel` 接口统一处理两种模型：
+1. 调用 `hyperParamsToJson(config)` 将完整 `MLConfig` 序列化为 `hyperparametersJson`
+2. 调用 `modelToJson(model)` 根据模型类型分派序列化格式
+3. 保存到 `model_version` 表
+4. `MLModelRegistry` 加载时读取 `hyperparametersJson` → 反序列化为 `MLConfig` → 读取 `modelType` → 分派正确的反序列化器
 
 ### ML 参数
 
@@ -274,6 +339,20 @@ SpreadCalculatorFactory.buildCalculator()
 | `ml.training.data.max.samples` | 10000 | 每 symbol 最大训练样本数 |
 | `ml.label.lookahead.periods` | 5 | 标记生成的前瞻周期 |
 | `ml.feature.capture.interval.ticks` | 5 | 特征捕获间隔 (tick) |
+
+### XGBoost 超参数
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `xgbNumRound` | 100 | Boosting 迭代轮数 |
+| `xgbMaxDepth` | 6 | 树最大深度 |
+| `xgbEta` | 0.3 | 学习率 (shrinkage) |
+| `xgbGamma` | 0.0 | 分裂最小损失下降阈值 |
+| `xgbMinChildWeight` | 1 | 叶子节点最小权重和 |
+| `xgbSubsample` | 1.0 | 训练数据采样比例 |
+| `xgbColsampleBytree` | 0.8 | 每棵树特征采样比例 |
+
+XGBoost 超参数通过 `MLConfig` 的 `@Builder` 模式设置，与随机森林超参数 (`rfNumTrees`, `rfMaxDepth`, `rfFeatureRatio`) 共存。`ModelTrainerService` 根据 `modelType` 自动读取对应超参组。
 
 ---
 
@@ -622,12 +701,17 @@ strategy:
         alphaModelName: btc_rf_v1
         alphaMlWeight: 0.3
       ETHUSDT:
-        model: constant
+        model: hybrid
         baseOffsetTicks: 1.0
+        alphaEnabled: true
+        alphaModelType: xgboost
+        alphaModelPath: models/eth_xgb_model.base64
+        alphaModelName: eth_xgb_v1
+        alphaMlWeight: 0.4
 ```
 
 ---
 
 ## 部署
 
-部署文档见 [deploy.md](deploy.md)，涵盖环境依赖、构建、DB 初始化、配置管理、启动参数、监控、生产检查清单等。
+部署文档见 [deploy.md](docs/deploy.md)，涵盖环境依赖、构建、DB 初始化、配置管理、启动参数、监控、生产检查清单等。

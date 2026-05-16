@@ -18,7 +18,7 @@ import java.util.Map;
 
 /**
  * 编排完整的机器学习训练流水线：
- * 加载数据 → 训练 → 评估 → 保存 → （可选）激活。
+ * 加载数据 → 训练（RF / XGBoost） → 评估 → 保存 → （可选）激活。
  */
 @Slf4j
 @Service
@@ -26,6 +26,7 @@ public class ModelTrainerService {
 
     private final CartTrainer cartTrainer;
     private final RandomForestTrainer randomForestTrainer;
+    private final XGBoostTrainer xgBoostTrainer;
     private final ModelEvaluator modelEvaluator;
     private final TrainDatasetMapper trainDatasetMapper;
     private final ModelVersionMapper modelVersionMapper;
@@ -38,6 +39,7 @@ public class ModelTrainerService {
                                 ApolloConfig apolloConfig) {
         this.cartTrainer = new CartTrainer();
         this.randomForestTrainer = new RandomForestTrainer(cartTrainer);
+        this.xgBoostTrainer = new XGBoostTrainer();
         this.modelEvaluator = new ModelEvaluator();
         this.trainDatasetMapper = trainDatasetMapper;
         this.modelVersionMapper = modelVersionMapper;
@@ -46,11 +48,11 @@ public class ModelTrainerService {
 
     /**
      * 针对指定交易标的（Symbol）的完整训练流水线。
+     * 根据 config.modelType 自动选择 RandomForest 或 XGBoost 训练器。
      */
     public ModelVersionEntity train(String symbol, MLConfig config) {
-        log.info("[ML] Starting training for {} with config: nTrees={}, maxDepth={}, minSamplesLeaf={}, featureRatio={}",
-                symbol, config.getRfNumTrees(), config.getRfMaxDepth(),
-                config.getRfMinSamplesLeaf(), config.getRfFeatureRatio());
+        String modelType = config.getModelType() != null ? config.getModelType() : "random_forest";
+        log.info("[ML] Starting {} training for {}: {}", modelType, symbol, config);
 
         // 1. Load labeled training data
         List<CartTrainer.TrainingExample> examples = loadTrainingData(symbol, apolloConfig.getMLTrainingDataMaxSamples());
@@ -65,17 +67,36 @@ public class ModelTrainerService {
         List<CartTrainer.TrainingExample> testData = examples.subList(splitIdx, examples.size());
 
         // 3. Train the model
-        String modelName = symbol + "_rf_" + System.currentTimeMillis();
-        RandomForestModel model = randomForestTrainer.train(modelName, trainData, config);
+        String modelName = symbol + "_" + modelType + "_" + System.currentTimeMillis();
+        MLModel model;
+        if ("xgboost".equals(modelType)) {
+            model = xgBoostTrainer.train(modelName, trainData, config);
+        } else {
+            model = randomForestTrainer.train(modelName, trainData, config);
+        }
+
+        if (model == null) {
+            log.warn("[ML] Training returned null for {}", symbol);
+            return null;
+        }
 
         // 4. Evaluate
         ModelEvaluator.EvaluationResult eval = modelEvaluator.evaluate(model, testData);
-        log.info("[ML] Training complete for {}: R²={}, MAE={}, RMSE={}, trees={}",
-                symbol,
-                String.format("%.4f", eval.getRSquared()),
-                String.format("%.4f", eval.getMae()),
-                String.format("%.4f", eval.getRmse()),
-                model.treeCount());
+        if (model instanceof RandomForestModel) {
+            log.info("[ML] Training complete for {}: R²={}, MAE={}, RMSE={}, trees={}",
+                    symbol,
+                    String.format("%.4f", eval.getRSquared()),
+                    String.format("%.4f", eval.getMae()),
+                    String.format("%.4f", eval.getRmse()),
+                    ((RandomForestModel) model).treeCount());
+        } else {
+            log.info("[ML] Training complete for {}: R²={}, MAE={}, RMSE={}, modelType={}",
+                    symbol,
+                    String.format("%.4f", eval.getRSquared()),
+                    String.format("%.4f", eval.getMae()),
+                    String.format("%.4f", eval.getRmse()),
+                    modelType);
+        }
 
         // 5. Save to DB
         return saveModel(model, eval, config, symbol);
@@ -103,7 +124,7 @@ public class ModelTrainerService {
         return examples;
     }
 
-    private ModelVersionEntity saveModel(RandomForestModel model, ModelEvaluator.EvaluationResult eval,
+    private ModelVersionEntity saveModel(MLModel model, ModelEvaluator.EvaluationResult eval,
                                           MLConfig config, String symbol) {
         try {
             String modelDataJson = modelToJson(model);
@@ -167,14 +188,14 @@ public class ModelTrainerService {
     /**
      * 获取指定交易标的（Symbol）的活跃模型（从数据库加载）。
      */
-    public RandomForestModel getActiveModel(String symbol) {
+    public MLModel getActiveModel(String symbol) {
         ModelVersionEntity entity = modelVersionMapper.selectOne(
                 new LambdaQueryWrapper<ModelVersionEntity>()
                         .eq(ModelVersionEntity::getSymbol, symbol)
                         .eq(ModelVersionEntity::getActive, true));
         if (entity == null) return null;
 
-        return modelFromJson(entity.getModelDataJson());
+        return modelFromJson(entity.getModelDataJson(), entity.getHyperparametersJson(), entity.getModelName());
     }
 
     /**
@@ -185,20 +206,44 @@ public class ModelTrainerService {
         if (apolloConfig.getMLAutoTrainIntervalHours() <= 0) return;
 
         log.info("[ML] Auto-training check...");
-        // Check all symbols that have data in train_dataset
-        // For simplicity, let symbols with > 50 unlabeled records trigger training
-        // This is a simplified check; a real system would track per-symbol state
     }
 
     // ---- JSON serialization helpers ----
 
-    private String modelToJson(RandomForestModel model) throws Exception {
-        return model.toJsonString();
+    private String modelToJson(MLModel model) throws Exception {
+        if (model instanceof XGBoostModel) {
+            return ((XGBoostModel) model).toJsonString();
+        }
+        return ((RandomForestModel) model).toJsonString();
     }
 
-    private RandomForestModel modelFromJson(String json) {
+    private MLModel modelFromJson(String modelDataJson, String hyperParamsJson, String modelName) {
         try {
-            return RandomForestModel.fromJson(json);
+            // Determine model type from hyperparameters
+            String modelType = "random_forest";
+            if (hyperParamsJson != null && !hyperParamsJson.isEmpty()) {
+                try {
+                    MLConfig config = MAPPER.readValue(hyperParamsJson, MLConfig.class);
+                    if (config.getModelType() != null) {
+                        modelType = config.getModelType();
+                    }
+                } catch (Exception e) {
+                    log.warn("[ML] Failed to parse hyperParamsJson, defaulting to random_forest", e);
+                }
+            }
+
+            if ("xgboost".equals(modelType)) {
+                // Try to parse featureCount from modelDataJson; fallback to 0
+                return XGBoostModel.fromJson(modelDataJson, modelName, 10);
+            }
+
+            // XGBoostModel.fromJson might return null if format doesn't match
+            // Fall through to RandomForestModel
+            if (modelDataJson != null && modelDataJson.startsWith("xgboost_base64:")) {
+                return XGBoostModel.fromJson(modelDataJson, modelName, 10);
+            }
+
+            return RandomForestModel.fromJson(modelDataJson);
         } catch (Exception e) {
             log.warn("[ML] Failed to deserialize model", e);
             return null;
@@ -206,20 +251,15 @@ public class ModelTrainerService {
     }
 
     private String hyperParamsToJson(MLConfig config) throws Exception {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("n_trees", config.getRfNumTrees());
-        params.put("max_depth", config.getRfMaxDepth());
-        params.put("min_samples_leaf", config.getRfMinSamplesLeaf());
-        params.put("feature_ratio", config.getRfFeatureRatio());
-        return MAPPER.writeValueAsString(params);
+        return MAPPER.writeValueAsString(config);
     }
-
 
     /**
      * 获取用于训练数据收集的特征提取器。
      */
     public CartTrainer getCartTrainer() { return cartTrainer; }
     public RandomForestTrainer getRandomForestTrainer() { return randomForestTrainer; }
+    public XGBoostTrainer getXgBoostTrainer() { return xgBoostTrainer; }
 
     public long getTrainingDataCount(String symbol) {
         LambdaQueryWrapper<TrainDatasetEntity> query = new LambdaQueryWrapper<TrainDatasetEntity>()

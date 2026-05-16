@@ -6,6 +6,7 @@ import com.orderbook.core.strategy.alpha.AlphaAggregator;
 import com.orderbook.core.strategy.alpha.AlphaConfig;
 import com.orderbook.core.strategy.ml.MLModel;
 import com.orderbook.core.strategy.ml.RandomForestModel;
+import com.orderbook.core.strategy.ml.XGBoostModel;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -83,6 +84,16 @@ public class SpreadCalculatorFactory {
                                 yield RandomForestModel.load(new File(path));
                             }
                             log.warn("[{}] Random Forest model type selected but no modelPath provided", symbol);
+                            yield null;
+                        }
+                        case "xgboost" -> {
+                            String path = config.getAlphaModelPath();
+                            if (path != null && !path.isEmpty()) {
+                                yield XGBoostModel.fromJson(
+                                        XGBoostModel.loadBase64FromFile(new File(path)),
+                                        symbol + "_xgb", 10);
+                            }
+                            log.warn("[{}] XGBoost model type selected but no modelPath provided", symbol);
                             yield null;
                         }
                         default -> {

@@ -98,6 +98,11 @@ public class BacktestEngine {
                 config.getSymbol(), snapshots.size(), config.getModel(),
                 config.getInitialCapital(), config.isRiskEnabled());
 
+        if (snapshots == null || snapshots.isEmpty()) {
+            log.warn("[Backtest] No snapshots to simulate");
+            return emptyResult(config);
+        }
+
         // Clear volatility tracker state from previous runs
         volatilityTracker.clear(config.getSymbol());
 
@@ -192,15 +197,32 @@ public class BacktestEngine {
                         FillResult fill = simulateFill(snapshot.getAsks(), symbolBo);
                         if (fill != null && fill.filledQty.compareTo(BigDecimal.ZERO) > 0) {
                             BigDecimal fillPrice = fill.avgPrice;
-                            BigDecimal fee = fill.totalCost.multiply(config.getTakerFeeRate())
+                            BigDecimal totalCost = fill.totalCost;
+                            BigDecimal fee = totalCost.multiply(config.getTakerFeeRate())
                                     .setScale(8, RoundingMode.HALF_UP);
+
+                            // Partial fill on cash shortage (like ai-hedge-fund)
+                            BigDecimal requiredCash = totalCost.add(fee);
+                            if (balance.compareTo(requiredCash) < 0) {
+                                BigDecimal maxAffordable = balance.compareTo(fillPrice.add(fee)) > 0
+                                        ? balance.divide(fillPrice.add(fee), 0, RoundingMode.DOWN)
+                                        : BigDecimal.ZERO;
+                                if (maxAffordable.compareTo(BigDecimal.ZERO) <= 0) continue;
+                                // Recalculate with reduced quantity
+                                BigDecimal fillQty = fill.filledQty.min(maxAffordable);
+                                fill = new FillResult(fillPrice, fillQty, fillPrice.multiply(fillQty));
+                                totalCost = fill.totalCost;
+                                fee = totalCost.multiply(config.getTakerFeeRate())
+                                        .setScale(8, RoundingMode.HALF_UP);
+                            }
+
                             totalFees = totalFees.add(fee);
 
                             buyQueue.add(new FillRecord(fillPrice, fill.filledQty));
                             netPosition = netPosition.add(fill.filledQty);
 
                             trades.add(new BacktestTrade(snapshot.getTime(), "buy", fillPrice, fill.filledQty, fee, BigDecimal.ZERO));
-                            balance = balance.subtract(fill.totalCost).subtract(fee);
+                            balance = balance.subtract(totalCost).subtract(fee);
                             hadFill = true;
                         }
                     } else if (bidPrice.compareTo(bestBid) > 0) {
@@ -211,6 +233,20 @@ public class BacktestEngine {
                             BigDecimal cost = fillPrice.multiply(fillQty);
                             BigDecimal fee = cost.multiply(config.getMakerFeeRate())
                                     .setScale(8, RoundingMode.HALF_UP);
+
+                            // Partial fill on cash shortage
+                            BigDecimal requiredCash = cost.add(fee);
+                            if (balance.compareTo(requiredCash) < 0) {
+                                BigDecimal maxAffordable = balance.compareTo(fillPrice.add(fee)) > 0
+                                        ? balance.divide(fillPrice.add(fee), 0, RoundingMode.DOWN)
+                                        : BigDecimal.ZERO;
+                                if (maxAffordable.compareTo(BigDecimal.ZERO) <= 0) continue;
+                                fillQty = fillQty.min(maxAffordable);
+                                cost = fillPrice.multiply(fillQty);
+                                fee = cost.multiply(config.getMakerFeeRate())
+                                        .setScale(8, RoundingMode.HALF_UP);
+                            }
+
                             totalFees = totalFees.add(fee);
 
                             buyQueue.add(new FillRecord(fillPrice, fillQty));
@@ -610,6 +646,7 @@ public class BacktestEngine {
         result.setInitialCapital(config.getInitialCapital());
         result.setFinalBalance(config.getInitialCapital());
         result.setTotalTrades(0);
+        result.setTotalTicks(0);
         return result;
     }
 
