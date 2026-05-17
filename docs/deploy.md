@@ -4,7 +4,7 @@
 
 | 组件 | 版本要求 | 用途 |
 |------|---------|------|
-| JDK | 17+ | 运行环境 |
+| JDK | 21 | 运行环境 |
 | MySQL / TiDB | 5.7+ / 5.4+ | 订单持久化、模型训练数据存储 |
 | Redis | 6.x+ | 订单簿快照、填充缓存 |
 | Apollo Config | 2.x+ | 配置中心（可选，本地开发可跳过） |
@@ -164,20 +164,28 @@ java -Dspring.profiles.active=local \
 
 ```bash
 java -Xms4g -Xmx4g \
+     -XX:+UseZGC -XX:MaxGCPauseMillis=5 \
+     -XX:+ZGenerational \
+     -Dlombok.disableUnsafeWarning=true \
      -Dspring.profiles.active=prod \
      -Dapollo.meta=http://apollo-config:8080 \
      -jar orderbook-core/target/orderbook-core.jar
 ```
 
-JVM 参数建议：
+JVM 参数建议（JDK 21 优化）：
 
 | 参数 | 建议值 | 说明 |
 |------|--------|------|
 | `-Xms` / `-Xmx` | 4g-8g | 堆内存，取决于管理的 symbol 数量 |
-| `-XX:+UseG1GC` | 默认启用 | G1 垃圾回收器 |
-| `-XX:MaxGCPauseMillis` | 50 | GC 暂停目标 |
+| GC 策略 | ZGC (`-XX:+UseZGC`) | JDK 21 推荐，亚毫秒级暂停，适合低延迟场景 |
+| `-XX:+ZGenerational` | 启用 | ZGC 分代模式（JDK 21+ 默认），降低 GC CPU 开销 |
+| `-XX:MaxGCPauseMillis` | 5 | GC 暂停目标（ZGC 可低至 1-5ms） |
+| `-Dspring.threads.virtual.enabled` | true | （已在 application.yml 配置）启用虚拟线程 |
+| `-Dlombok.disableUnsafeWarning` | true | 屏蔽 Lombok 在 JDK 21 上的 Unsafe 弃用警告 |
 | `-Dspring.profiles.active` | prod | 激活的生产配置 profile |
 | `-Dapollo.meta` | — | Apollo 配置中心地址 |
+
+> 💡 **GC 选择建议**：ZGC 在 JDK 21 已生产就绪，暂停时间不受堆大小影响，适合延迟敏感的高频做市场景。如果更关注吞吐量，可继续使用 G1 (`-XX:+UseG1GC`)，配合 `-XX:MaxGCPauseMillis=50`。
 
 ---
 
@@ -248,12 +256,13 @@ scrape_configs:
 
 ### 前置检查
 
-- [ ] JDK 17+ 安装，`java -version` 确认
+- [ ] JDK 21 安装，`java -version` 确认
 - [ ] MySQL/TiDB 可用，schema 已初始化
 - [ ] Redis 可用
 - [ ] Apollo 配置中心已创建命名空间（生产）
 - [ ] 交易所 API Key/Secret 已配置（OSL_GLOBAL 需 private stream 权限）
 - [ ] JVM 参数已根据机器规格调整
+- [ ] 虚拟线程兼容性确认：代码中无 `synchronized` 块与 `ThreadLocal` 耦合（虚拟线程可携带 ThreadLocal，但池化场景需注意）
 
 ### 启动前验证
 
